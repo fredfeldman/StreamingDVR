@@ -8,7 +8,8 @@ namespace StreamingDVR
 {
     public partial class Form1 : Form
     {
-        private XtreamCodesService _xtreamService;
+        private XtreamCodesService? _xtreamService;
+        private Enigma2Service? _enigma2Service;
         private RecordingService? _recordingService;
         private ConfigurationService _configService;
         private EpgService _epgService;
@@ -17,11 +18,11 @@ namespace StreamingDVR
         private List<LiveChannel> _currentCategoryChannels = new();
         private System.Windows.Forms.Timer _refreshTimer;
         private Dictionary<string, RecordingPreviewForm> _previewForms = new();
+        private List<IptvSource> _activeSources = new();
 
         public Form1()
         {
             InitializeComponent();
-            _xtreamService = new XtreamCodesService();
             _configService = new ConfigurationService();
             _epgService = new EpgService();
             _refreshTimer = new System.Windows.Forms.Timer();
@@ -31,16 +32,35 @@ namespace StreamingDVR
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            LogDebug("========================================");
+            LogDebug("=== Application Starting ===");
+            LogDebug($"Version: {Application.ProductVersion}");
+            LogDebug($"OS: {Environment.OSVersion}");
+            LogDebug($".NET Version: {Environment.Version}");
+            LogDebug("========================================");
+
+            LogDebug("Checking FFmpeg availability...");
             CheckFFmpegAvailability();
+
+            LogDebug("Loading configuration...");
             LoadConfiguration();
 
             if (string.IsNullOrEmpty(txtRecordingPath.Text))
             {
                 var recordingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "IPTV Recordings");
                 txtRecordingPath.Text = recordingsPath;
+                LogDebug($"Set default recording path: {recordingsPath}");
+            }
+            else
+            {
+                LogDebug($"Recording path from config: {txtRecordingPath.Text}");
             }
 
+            LogDebug("Initializing recording service...");
             InitializeRecordingService(txtRecordingPath.Text);
+
+            LogDebug("Auto-connecting to active sources...");
+            _ = ConnectToActiveSources();
         }
 
         private void CheckFFmpegAvailability()
@@ -67,17 +87,42 @@ namespace StreamingDVR
         {
             try
             {
+                LogDebug("  Loading configuration from file...");
                 var config = _configService.LoadConfiguration();
+
+                LogDebug($"  Legacy ServerUrl: {config.ServerUrl}");
+                LogDebug($"  Recording Path: {config.RecordingPath}");
+                LogDebug($"  Remember Credentials: {config.RememberCredentials}");
+                LogDebug($"  IPTV Sources count: {config.IptvSources.Count}");
+                LogDebug($"  Use Streamlink: {config.UseStreamlink}");
+                LogDebug($"  Streamlink Quality: {config.StreamlinkQuality}");
+
+                foreach (var source in config.IptvSources)
+                {
+                    LogDebug($"    - {source.Name} ({source.Type}) - Active: {source.IsActive}");
+                }
+
                 txtServerUrl.Text = config.ServerUrl;
                 txtRecordingPath.Text = config.RecordingPath;
+
+                // Load Streamlink settings
+                chkUseStreamlink.Checked = config.UseStreamlink;
+                cboStreamlinkQuality.SelectedItem = config.StreamlinkQuality;
+                if (cboStreamlinkQuality.SelectedIndex == -1)
+                {
+                    cboStreamlinkQuality.SelectedIndex = 0; // Default to "best"
+                }
+                txtStreamlinkOptions.Text = config.StreamlinkOptions;
 
                 if (config.RememberCredentials)
                 {
                     txtUsername.Text = config.Username;
                     txtPassword.Text = config.Password;
+                    LogDebug("  Loaded saved credentials (legacy)");
                 }
 
                 UpdateStatus("Configuration loaded");
+                LogDebug("  Configuration loaded successfully");
             }
             catch (Exception ex)
             {
@@ -95,7 +140,10 @@ namespace StreamingDVR
                     Username = txtUsername.Text,
                     Password = txtPassword.Text,
                     RecordingPath = txtRecordingPath.Text,
-                    RememberCredentials = true
+                    RememberCredentials = true,
+                    UseStreamlink = chkUseStreamlink.Checked,
+                    StreamlinkQuality = cboStreamlinkQuality.SelectedItem?.ToString() ?? "best",
+                    StreamlinkOptions = txtStreamlinkOptions.Text
                 };
 
                 _configService.SaveConfiguration(config);
@@ -111,6 +159,17 @@ namespace StreamingDVR
         {
             _recordingService?.Dispose();
             _recordingService = new RecordingService(path);
+
+            // Configure Streamlink settings
+            var config = _configService.LoadConfiguration();
+            _recordingService.ConfigureStreamlink(
+                config.UseStreamlink,
+                config.StreamlinkQuality,
+                config.StreamlinkRetryOpen,
+                config.StreamlinkRetryStreams,
+                config.StreamlinkOptions
+            );
+
             _recordingService.RecordingStarted += (s, rec) => BeginInvoke(() =>
             {
                 UpdateStatus($"Recording started: {rec.ChannelName}");
@@ -130,9 +189,27 @@ namespace StreamingDVR
             {
                 try
                 {
-                    if (!_xtreamService.IsAuthenticated) return;
+                    // Try to find the channel in our cached channels to get stream URL
+                    var channel = _allChannels.FirstOrDefault(c => c.StreamId == scheduled.StreamId);
+                    if (channel == null)
+                    {
+                        BeginInvoke(() =>
+                        {
+                            UpdateStatus($"Cannot start scheduled recording: Channel not found");
+                        });
+                        return;
+                    }
 
-                    var streamUrl = _xtreamService.GetStreamUrl(scheduled.StreamId);
+                    var streamUrl = GetStreamUrlForChannel(channel);
+                    if (string.IsNullOrEmpty(streamUrl))
+                    {
+                        BeginInvoke(() =>
+                        {
+                            UpdateStatus($"Cannot start scheduled recording: No active source");
+                        });
+                        return;
+                    }
+
                     await _recordingService.StartRecordingAsync(scheduled.ChannelName, scheduled.StreamId, streamUrl, scheduled.Duration);
 
                     BeginInvoke(() =>
@@ -153,78 +230,24 @@ namespace StreamingDVR
 
         private async void BtnConnect_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(txtServerUrl.Text) ||
-                string.IsNullOrWhiteSpace(txtUsername.Text) ||
-                string.IsNullOrWhiteSpace(txtPassword.Text))
-            {
-                MessageBox.Show("Please fill in all connection details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+            // This is the legacy connection button - redirect to manage sources
+            MessageBox.Show(
+                "Please use 'Manage Sources' in the Settings tab to configure your IPTV connections.\n\n" +
+                "The new multi-source manager supports:\n" +
+                "• Xtream Codes\n" +
+                "• Enigma2 Boxes\n" +
+                "• M3U Playlists",
+                "Use Manage Sources",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
 
-            btnConnect.Enabled = false;
-            UpdateStatus("Connecting...");
-
-            try
-            {
-                var success = await _xtreamService.AuthenticateAsync(
-                    txtServerUrl.Text.Trim(),
-                    txtUsername.Text.Trim(),
-                    txtPassword.Text.Trim());
-
-                if (success)
-                {
-                    _epgService.SetCredentials(txtServerUrl.Text.Trim(), txtUsername.Text.Trim(), txtPassword.Text.Trim());
-                    SaveConfiguration();
-                    UpdateStatus("Connected successfully");
-                    MessageBox.Show("Connected successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    await LoadChannelsAndCategories();
-                    _refreshTimer.Start();
-                }
-                else
-                {
-                    UpdateStatus("Connection failed");
-                    MessageBox.Show("Failed to connect. Please check your credentials.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                UpdateStatus("Connection error");
-                MessageBox.Show($"Error connecting: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                btnConnect.Enabled = true;
-            }
+            tabControl.SelectedTab = tabSettings;
         }
 
         private async Task LoadChannelsAndCategories()
         {
-            try
-            {
-                UpdateStatus("Loading categories and channels...");
-
-                _categories = await _xtreamService.GetLiveCategoriesAsync();
-                _allChannels = await _xtreamService.GetLiveChannelsAsync();
-
-                lstCategories.Items.Clear();
-                lstCategories.Items.Add("All Channels");
-                foreach (var category in _categories.OrderBy(c => c.CategoryName))
-                {
-                    lstCategories.Items.Add(category.CategoryName);
-                }
-
-                if (lstCategories.Items.Count > 0)
-                {
-                    lstCategories.SelectedIndex = 0;
-                }
-
-                UpdateStatus($"Loaded {_allChannels.Count} channels in {_categories.Count} categories");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error loading channels: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                UpdateStatus("Error loading channels");
-            }
+            // This method is deprecated - use ConnectToActiveSources instead
+            await ConnectToActiveSources();
         }
 
         private async void LstCategories_SelectedIndexChanged(object sender, EventArgs e)
@@ -244,7 +267,11 @@ namespace StreamingDVR
                 else
                 {
                     var selectedCategory = _categories[lstCategories.SelectedIndex - 1];
-                    _currentCategoryChannels = await _xtreamService.GetLiveChannelsByCategoryAsync(selectedCategory.CategoryId);
+
+                    // Filter channels by category from cached channels
+                    _currentCategoryChannels = _allChannels
+                        .Where(c => c.CategoryId == selectedCategory.CategoryId)
+                        .ToList();
                 }
 
                 DisplayChannels(_currentCategoryChannels);
@@ -293,10 +320,34 @@ namespace StreamingDVR
             var channel = lstChannels.SelectedItems[0].Tag as LiveChannel;
             if (channel != null)
             {
-                var streamUrl = _xtreamService.GetStreamUrl(channel.StreamId);
-                MessageBox.Show($"Stream URL:\n{streamUrl}\n\nUse VLC or another media player to open this URL.",
-                    "Stream URL", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var streamUrl = GetStreamUrlForChannel(channel);
+                if (!string.IsNullOrEmpty(streamUrl))
+                {
+                    using var dialog = new StreamUrlDialog(streamUrl, channel.Name);
+                    dialog.ShowDialog(this);
+                }
+                else
+                {
+                    MessageBox.Show("Unable to generate stream URL. Source not configured.",
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
+        }
+
+        private string GetStreamUrlForChannel(LiveChannel channel)
+        {
+            // Check stream type to determine which service to use
+            if (channel.StreamType == "enigma2" && _enigma2Service != null && _enigma2Service.IsAuthenticated)
+            {
+                return _enigma2Service.GetStreamUrl(channel);
+            }
+            else if (_xtreamService != null && _xtreamService.IsAuthenticated)
+            {
+                return _xtreamService.GetStreamUrl(channel.StreamId);
+            }
+
+            // TODO: Add support for M3U stream URLs
+            return string.Empty;
         }
 
         private async void BtnRecord_Click(object sender, EventArgs e)
@@ -340,7 +391,14 @@ namespace StreamingDVR
 
             try
             {
-                var streamUrl = _xtreamService.GetStreamUrl(channel.StreamId);
+                var streamUrl = GetStreamUrlForChannel(channel);
+                if (string.IsNullOrEmpty(streamUrl))
+                {
+                    MessageBox.Show("Unable to get stream URL. Please check your source configuration.",
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
                 await _recordingService.StartRecordingAsync(channel.Name, channel.StreamId, streamUrl, duration);
                 MessageBox.Show($"Recording started for {channel.Name}", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 tabControl.SelectedTab = tabRecordings;
@@ -368,13 +426,19 @@ namespace StreamingDVR
 
         private async void BtnRefresh_Click(object sender, EventArgs e)
         {
-            if (!_xtreamService.IsAuthenticated)
+            LogDebug("=== Manual Refresh Clicked ===");
+
+            if (_activeSources.Count == 0)
             {
-                MessageBox.Show("Please connect to Xtream Codes first.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                LogDebug("No active sources - showing warning");
+                MessageBox.Show("No active sources configured. Please use 'Manage Sources' to add IPTV sources.", 
+                    "No Sources", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                tabControl.SelectedTab = tabSettings;
                 return;
             }
 
-            await LoadChannelsAndCategories();
+            LogDebug($"Refreshing {_activeSources.Count} active sources");
+            await ConnectToActiveSources();
         }
 
         private void RefreshTimer_Tick(object? sender, EventArgs e)
@@ -557,9 +621,17 @@ namespace StreamingDVR
             var channel = lstChannels.SelectedItems[0].Tag as LiveChannel;
             if (channel != null)
             {
-                var streamUrl = _xtreamService.GetStreamUrl(channel.StreamId);
-                Clipboard.SetText(streamUrl);
-                UpdateStatus("Stream URL copied to clipboard");
+                var streamUrl = GetStreamUrlForChannel(channel);
+                if (!string.IsNullOrEmpty(streamUrl))
+                {
+                    Clipboard.SetText(streamUrl);
+                    UpdateStatus("Stream URL copied to clipboard");
+                }
+                else
+                {
+                    MessageBox.Show("Unable to get stream URL. Source not configured.",
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
 
@@ -638,6 +710,31 @@ namespace StreamingDVR
                 InitializeRecordingService(dialog.SelectedPath);
                 SaveConfiguration();
                 UpdateStatus($"Recording path updated: {dialog.SelectedPath}");
+            }
+        }
+
+        private void SaveConfiguration()
+        {
+            try
+            {
+                var config = new AppConfiguration
+                {
+                    ServerUrl = txtServerUrl.Text,
+                    Username = txtUsername.Text,
+                    Password = txtPassword.Text,
+                    RecordingPath = txtRecordingPath.Text,
+                    RememberCredentials = true,
+                    UseStreamlink = chkUseStreamlink.Checked,
+                    StreamlinkQuality = cboStreamlinkQuality.SelectedItem?.ToString() ?? "best",
+                    StreamlinkOptions = txtStreamlinkOptions.Text
+                };
+
+                _configService.SaveConfiguration(config);
+                UpdateStatus("Configuration saved");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Failed to save configuration: {ex.Message}");
             }
         }
 
@@ -773,77 +870,370 @@ namespace StreamingDVR
 
             return base.ProcessCmdKey(ref msg, keyData);
         }
-    }
 
-    public class RecordingDurationForm : Form
-    {
-        private NumericUpDown numHours;
-        private NumericUpDown numMinutes;
-        private Button btnOk;
-        private Button btnCancel;
-
-        public TimeSpan Duration { get; private set; }
-
-        public RecordingDurationForm()
+        private void BtnManageSources_Click(object? sender, EventArgs e)
         {
-            InitializeComponent();
+            var config = _configService.LoadConfiguration();
+
+            using var sourceManager = new SourceManagerForm(config.IptvSources);
+            if (sourceManager.ShowDialog() == DialogResult.OK)
+            {
+                config.IptvSources = sourceManager.Sources;
+
+                try
+                {
+                    _configService.SaveConfiguration(config);
+                    UpdateStatus($"Saved {config.IptvSources.Count} source(s)");
+
+                    // Reconnect to active sources
+                    _ = ConnectToActiveSources();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error saving configuration: {ex.Message}", 
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
         }
 
-        private void InitializeComponent()
+        private void BtnManageEpgSources_Click(object? sender, EventArgs e)
         {
-            this.Text = "Recording Duration";
-            this.Size = new Size(300, 150);
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
-            this.StartPosition = FormStartPosition.CenterParent;
+            using var epgManager = new EpgSourceManagerForm(_configService);
+            if (epgManager.ShowDialog() == DialogResult.OK)
+            {
+                UpdateStatus("EPG sources updated");
+            }
+        }
 
-            var lblHours = new Label { Text = "Hours:", Location = new Point(20, 20), AutoSize = true };
-            numHours = new NumericUpDown
+        private void MenuAssignEpg_Click(object? sender, EventArgs e)
+        {
+            if (lstChannels.SelectedItems.Count == 0)
             {
-                Location = new Point(100, 18),
-                Width = 60,
-                Minimum = 0,
-                Maximum = 24,
-                Value = 1
-            };
+                MessageBox.Show("Please select a channel.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
 
-            var lblMinutes = new Label { Text = "Minutes:", Location = new Point(20, 50), AutoSize = true };
-            numMinutes = new NumericUpDown
-            {
-                Location = new Point(100, 48),
-                Width = 60,
-                Minimum = 0,
-                Maximum = 59,
-                Value = 0
-            };
+            var channel = lstChannels.SelectedItems[0].Tag as LiveChannel;
+            if (channel == null) return;
 
-            btnOk = new Button
+            using var assignEpgForm = new AssignEpgForm(_configService, channel.StreamId, channel.Name);
+            if (assignEpgForm.ShowDialog() == DialogResult.OK)
             {
-                Text = "OK",
-                Location = new Point(100, 80),
-                DialogResult = DialogResult.OK
-            };
-            btnOk.Click += (s, e) =>
+                UpdateStatus($"EPG assignment updated for {channel.Name}");
+            }
+        }
+
+        private async Task ConnectToActiveSources()
+        {
+            LogDebug("=== ConnectToActiveSources: Starting ===");
+
+            var config = _configService.LoadConfiguration();
+            _activeSources = config.IptvSources.Where(s => s.IsActive).ToList();
+
+            LogDebug($"Total sources in config: {config.IptvSources.Count}");
+            LogDebug($"Active sources: {_activeSources.Count}");
+
+            if (_activeSources.Count == 0)
             {
-                Duration = TimeSpan.FromHours((double)numHours.Value) + TimeSpan.FromMinutes((double)numMinutes.Value);
-                if (Duration.TotalSeconds == 0)
+                LogDebug("No active sources configured");
+                UpdateStatus("No active sources configured. Use Manage Sources to add sources.");
+                return;
+            }
+
+            UpdateStatus($"Connecting to {_activeSources.Count} source(s)...");
+            _allChannels.Clear();
+            _categories.Clear();
+
+            int successCount = 0;
+            int attemptNumber = 0;
+
+            foreach (var source in _activeSources)
+            {
+                attemptNumber++;
+                LogDebug($"--- Source {attemptNumber}/{_activeSources.Count} ---");
+                LogDebug($"Name: {source.Name}");
+                LogDebug($"Type: {source.Type}");
+                LogDebug($"ID: {source.Id}");
+
+                try
                 {
-                    MessageBox.Show("Please specify a duration greater than 0.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    DialogResult = DialogResult.None;
+                    switch (source.Type)
+                    {
+                        case SourceType.XtreamCodes:
+                            LogDebug($"Attempting Xtream Codes connection to {source.Name}");
+                            LogDebug($"Server URL: {source.ServerUrl}");
+                            LogDebug($"Username: {source.Username}");
+                            LogDebug($"Port: {source.Port}");
+
+                            if (await ConnectToXtreamSource(source))
+                            {
+                                successCount++;
+                                LogDebug($"✓ Successfully connected to {source.Name}");
+                            }
+                            else
+                            {
+                                LogDebug($"✗ Failed to connect to {source.Name} (returned false)");
+                            }
+                            break;
+
+                        case SourceType.Enigma2:
+                            LogDebug($"Attempting Enigma2 connection to {source.Name}");
+                            LogDebug($"Server URL: {source.ServerUrl}");
+                            LogDebug($"Username: {source.Username}");
+                            LogDebug($"Port: {source.Port}");
+
+                            if (await ConnectToEnigma2Source(source))
+                            {
+                                successCount++;
+                                LogDebug($"✓ Successfully connected to {source.Name}");
+                            }
+                            else
+                            {
+                                LogDebug($"✗ Failed to connect to {source.Name} (returned false)");
+                            }
+                            break;
+
+                        case SourceType.M3U:
+                            LogDebug($"M3U support coming soon: {source.Name}");
+                            UpdateStatus($"M3U support coming soon: {source.Name}");
+                            break;
+                    }
                 }
-            };
+                catch (Exception ex)
+                {
+                    source.LastError = ex.Message;
+                    LogDebug($"✗ Exception connecting to {source.Name}:");
+                    LogDebug($"  Exception Type: {ex.GetType().Name}");
+                    LogDebug($"  Message: {ex.Message}");
+                    LogDebug($"  Stack Trace: {ex.StackTrace}");
+                    UpdateStatus($"Failed to connect to {source.Name}: {ex.Message}");
+                }
+            }
 
-            btnCancel = new Button
+            LogDebug($"=== Connection Summary ===");
+            LogDebug($"Successful: {successCount}/{_activeSources.Count}");
+            LogDebug($"Total channels loaded: {_allChannels.Count}");
+            LogDebug($"Total categories loaded: {_categories.Count}");
+
+            if (successCount > 0)
             {
-                Text = "Cancel",
-                Location = new Point(180, 80),
-                DialogResult = DialogResult.Cancel
-            };
+                UpdateStatus($"Connected to {successCount} of {_activeSources.Count} source(s)");
+                LoadChannelsAndCategoriesFromCache();
+                _refreshTimer.Start();
+                LogDebug("Timer started for periodic refresh");
+            }
+            else
+            {
+                LogDebug("No sources connected successfully");
+                UpdateStatus("Failed to connect to any sources");
+            }
 
-            this.Controls.AddRange(new Control[] { lblHours, numHours, lblMinutes, numMinutes, btnOk, btnCancel });
-            this.AcceptButton = btnOk;
-            this.CancelButton = btnCancel;
+            LogDebug("=== ConnectToActiveSources: Complete ===");
+        }
+
+        private async Task<bool> ConnectToEnigma2Source(IptvSource source)
+        {
+            LogDebug($"  >> ConnectToEnigma2Source: {source.Name}");
+
+            // Validate server URL (credentials are optional for Enigma2)
+            if (string.IsNullOrEmpty(source.ServerUrl))
+            {
+                LogDebug("  ✗ Missing server URL");
+                throw new Exception("Server URL is required");
+            }
+
+            // Log credential status
+            if (string.IsNullOrEmpty(source.Username))
+            {
+                LogDebug("  Anonymous access (no username/password)");
+            }
+            else
+            {
+                LogDebug("  Using authentication");
+            }
+
+            LogDebug("  Credentials validation passed");
+
+            // Initialize service if needed
+            if (_enigma2Service == null)
+            {
+                LogDebug("  Creating new Enigma2Service instance");
+                _enigma2Service = new Enigma2Service();
+            }
+            else
+            {
+                LogDebug("  Reusing existing Enigma2Service instance");
+            }
+
+            // Attempt authentication
+            LogDebug("  Calling AuthenticateAsync...");
+            var success = await _enigma2Service.AuthenticateAsync(
+                source.ServerUrl,
+                source.Username,
+                source.Password,
+                source.Port);
+
+            LogDebug($"  Authentication result: {success}");
+
+            if (success)
+            {
+                source.LastConnected = DateTime.Now;
+                source.LastError = null;
+
+                LogDebug("  Loading bouquets (categories)...");
+                var bouquets = await _enigma2Service.GetBouquetsAsync();
+                LogDebug($"  Loaded {bouquets.Count} bouquets");
+
+                LogDebug("  Loading channels from all bouquets...");
+                var channels = await _enigma2Service.GetAllChannelsAsync();
+                LogDebug($"  Loaded {channels.Count} channels");
+
+                // Add source identifier to channels
+                LogDebug("  Tagging channels with source ID");
+                foreach (var channel in channels)
+                {
+                    channel.CategoryId = $"{source.Id}_{channel.CategoryId}";
+                }
+
+                _allChannels.AddRange(channels);
+                _categories.AddRange(bouquets);
+
+                LogDebug($"  << ConnectToEnigma2Source: Success (Total channels: {_allChannels.Count})");
+                return true;
+            }
+
+            LogDebug("  << ConnectToEnigma2Source: Failed (authentication returned false)");
+            return false;
+        }
+
+        private async Task<bool> ConnectToXtreamSource(IptvSource source)
+        {
+            LogDebug($"  >> ConnectToXtreamSource: {source.Name}");
+
+            // Validate credentials
+            if (string.IsNullOrEmpty(source.ServerUrl) || 
+                string.IsNullOrEmpty(source.Username) || 
+                string.IsNullOrEmpty(source.Password))
+            {
+                LogDebug("  ✗ Missing connection details");
+                LogDebug($"    ServerUrl empty: {string.IsNullOrEmpty(source.ServerUrl)}");
+                LogDebug($"    Username empty: {string.IsNullOrEmpty(source.Username)}");
+                LogDebug($"    Password empty: {string.IsNullOrEmpty(source.Password)}");
+                throw new Exception("Missing connection details");
+            }
+
+            LogDebug("  Credentials validation passed");
+
+            // Initialize service if needed
+            if (_xtreamService == null)
+            {
+                LogDebug("  Creating new XtreamCodesService instance");
+                _xtreamService = new XtreamCodesService();
+            }
+            else
+            {
+                LogDebug("  Reusing existing XtreamCodesService instance");
+            }
+
+            // Attempt authentication
+            LogDebug("  Calling AuthenticateAsync...");
+            var success = await _xtreamService.AuthenticateAsync(
+                source.ServerUrl,
+                source.Username,
+                source.Password);
+
+            LogDebug($"  Authentication result: {success}");
+
+            if (success)
+            {
+                LogDebug("  Setting EPG credentials");
+                _epgService.SetCredentials(source.ServerUrl, source.Username, source.Password);
+                source.LastConnected = DateTime.Now;
+                source.LastError = null;
+
+                LogDebug("  Loading channels...");
+                var channels = await _xtreamService.GetLiveChannelsAsync();
+                LogDebug($"  Loaded {channels.Count} channels");
+
+                LogDebug("  Loading categories...");
+                var categories = await _xtreamService.GetLiveCategoriesAsync();
+                LogDebug($"  Loaded {categories.Count} categories");
+
+                // Add source identifier to channels
+                LogDebug("  Tagging channels with source ID");
+                foreach (var channel in channels)
+                {
+                    channel.CategoryId = $"{source.Id}_{channel.CategoryId}";
+                }
+
+                _allChannels.AddRange(channels);
+                _categories.AddRange(categories);
+
+                LogDebug($"  << ConnectToXtreamSource: Success (Total channels: {_allChannels.Count})");
+                return true;
+            }
+
+            LogDebug("  << ConnectToXtreamSource: Failed (authentication returned false)");
+            return false;
+        }
+
+        private void LoadChannelsAndCategoriesFromCache()
+        {
+            LogDebug("=== LoadChannelsAndCategoriesFromCache ===");
+            LogDebug($"Total channels in cache: {_allChannels.Count}");
+            LogDebug($"Total categories in cache: {_categories.Count}");
+
+            // Load categories
+            lstCategories.Items.Clear();
+            lstCategories.Items.Add("All Channels");
+
+            var uniqueCategories = _categories
+                .GroupBy(c => c.CategoryName)
+                .Select(g => g.First())
+                .OrderBy(c => c.CategoryName)
+                .ToList();
+
+            LogDebug($"Unique categories: {uniqueCategories.Count}");
+
+            foreach (var category in uniqueCategories)
+            {
+                lstCategories.Items.Add(category);
+            }
+
+            if (lstCategories.Items.Count > 0)
+            {
+                lstCategories.SelectedIndex = 0;
+                LogDebug("Selected 'All Channels' category");
+            }
+
+            UpdateStatus($"Loaded {_allChannels.Count} channels from {_activeSources.Count} source(s)");
+            LogDebug($"UI updated with {lstCategories.Items.Count} categories");
+            LogDebug("=== LoadChannelsAndCategoriesFromCache: Complete ===");
+        }
+
+        private void LogDebug(string message)
+        {
+            // Write to debug output
+            System.Diagnostics.Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {message}");
+
+            // Also write to a log file for persistent debugging
+            try
+            {
+                var logPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "IPTV_DVR",
+                    "debug.log");
+
+                var logDir = Path.GetDirectoryName(logPath);
+                if (!Directory.Exists(logDir))
+                    Directory.CreateDirectory(logDir!);
+
+                File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
+            }
+            catch
+            {
+                // Silently fail if logging fails - don't interrupt the app
+            }
         }
     }
 }

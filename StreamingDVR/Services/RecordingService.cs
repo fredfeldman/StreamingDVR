@@ -13,6 +13,13 @@ namespace StreamingDVR.Services
         private readonly RecordingPersistenceService _persistenceService;
         private Func<int, string, TimeSpan, Task<Recording>>? _scheduledRecordingCallback;
 
+        // Streamlink settings
+        private bool _useStreamlink = false;
+        private string _streamlinkQuality = "best";
+        private bool _streamlinkRetryOpen = true;
+        private int _streamlinkRetryStreams = 3;
+        private string _streamlinkOptions = string.Empty;
+
         public event EventHandler<Recording>? RecordingStarted;
         public event EventHandler<Recording>? RecordingStopped;
         public event EventHandler<Recording>? RecordingFailed;
@@ -97,7 +104,16 @@ namespace StreamingDVR.Services
 
             try
             {
-                var process = await StartFFmpegRecordingAsync(streamUrl, recording.FilePath, duration);
+                Process process;
+                if (_useStreamlink)
+                {
+                    process = await StartStreamlinkRecordingAsync(streamUrl, recording.FilePath, duration);
+                }
+                else
+                {
+                    process = await StartFFmpegRecordingAsync(streamUrl, recording.FilePath, duration);
+                }
+
                 _activeRecordings[recording.Id] = process;
                 _recordings.Add(recording);
 
@@ -229,12 +245,12 @@ namespace StreamingDVR.Services
         private async Task<Process> StartFFmpegRecordingAsync(string streamUrl, string outputPath, TimeSpan? duration)
         {
             var ffmpegArgs = $"-i \"{streamUrl}\" -c copy -bsf:a aac_adtstoasc";
-            
+
             if (duration.HasValue)
             {
                 ffmpegArgs += $" -t {(int)duration.Value.TotalSeconds}";
             }
-            
+
             ffmpegArgs += $" \"{outputPath}\"";
 
             var processStartInfo = new ProcessStartInfo
@@ -256,6 +272,85 @@ namespace StreamingDVR.Services
             if (process.HasExited)
             {
                 throw new Exception("FFmpeg failed to start recording");
+            }
+
+            return process;
+        }
+
+        private async Task<Process> StartStreamlinkRecordingAsync(string streamUrl, string outputPath, TimeSpan? duration)
+        {
+            // Build streamlink arguments
+            var args = new List<string>();
+
+            // Quality selection
+            args.Add($"--quality \"{_streamlinkQuality}\"");
+
+            // Retry options
+            if (_streamlinkRetryOpen)
+            {
+                args.Add("--retry-open 3");
+            }
+
+            if (_streamlinkRetryStreams > 0)
+            {
+                args.Add($"--retry-streams {_streamlinkRetryStreams}");
+            }
+
+            // Output file
+            args.Add($"--output \"{outputPath}\"");
+
+            // Force progress output
+            args.Add("--force-progress");
+
+            // Additional custom options
+            if (!string.IsNullOrWhiteSpace(_streamlinkOptions))
+            {
+                args.Add(_streamlinkOptions);
+            }
+
+            // Stream URL
+            args.Add($"\"{streamUrl}\"");
+
+            var streamlinkArgs = string.Join(" ", args);
+
+            var processStartInfo = new ProcessStartInfo
+            {
+                FileName = "streamlink",
+                Arguments = streamlinkArgs,
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            var process = new Process { StartInfo = processStartInfo };
+            process.Start();
+
+            // Wait a bit to check if streamlink starts successfully
+            await Task.Delay(2000);
+
+            if (process.HasExited && process.ExitCode != 0)
+            {
+                var error = await process.StandardError.ReadToEndAsync();
+                throw new Exception($"Streamlink failed to start: {error}");
+            }
+
+            // Handle duration limit if specified
+            if (duration.HasValue)
+            {
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(duration.Value);
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.Kill();
+                        }
+                    }
+                    catch { }
+                });
             }
 
             return process;

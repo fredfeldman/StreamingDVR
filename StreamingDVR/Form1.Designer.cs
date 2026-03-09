@@ -53,7 +53,6 @@
             menuScheduleRecording = new ToolStripMenuItem();
             menuViewEpg = new ToolStripMenuItem();
             menuSeparator1 = new ToolStripSeparator();
-            menuAssignEpg = new ToolStripMenuItem();
             menuCopyStreamUrl = new ToolStripMenuItem();
             txtSearch = new TextBox();
             panel1 = new Panel();
@@ -91,6 +90,7 @@
             groupBoxSources = new GroupBox();
             lblSourcesInfo = new Label();
             btnManageSources = new Button();
+            menuAssignEpg = new ToolStripMenuItem();
             btnViewEpg = new Button();
             menuPlayRecording = new ToolStripMenuItem();
             menuStopRecording = new ToolStripMenuItem();
@@ -108,6 +108,14 @@
             lblStatus = new Label();
             statusStrip = new StatusStrip();
             toolStripStatusLabel = new ToolStripStatusLabel();
+            groupBoxStreamlink = new GroupBox();
+            lblStreamlinkInfo = new Label();
+            chkUseStreamlink = new CheckBox();
+            lblStreamlinkQuality = new Label();
+            cboStreamlinkQuality = new ComboBox();
+            btnCheckStreamlink = new Button();
+            lblStreamlinkOptions = new Label();
+            txtStreamlinkOptions = new TextBox();
             tabControl.SuspendLayout();
             tabChannels.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)splitContainer1).BeginInit();
@@ -122,10 +130,9 @@
             panel3.SuspendLayout();
             tabSettings.SuspendLayout();
             groupBox2.SuspendLayout();
-            groupBoxStreamlink.SuspendLayout();
-            groupBoxEpg.SuspendLayout();
             groupBoxSources.SuspendLayout();
             statusStrip.SuspendLayout();
+            groupBoxStreamlink.SuspendLayout();
             SuspendLayout();
             // 
             // menuStrip
@@ -200,7 +207,7 @@
             tabControl.Controls.Add(tabSettings);
             tabControl.Dock = DockStyle.Fill;
             tabControl.Location = new Point(0, 24);
-            tabControl.Margin = new Padding(4, 4, 4, 4);
+            tabControl.Margin = new Padding(4);
             tabControl.Name = "tabControl";
             tabControl.SelectedIndex = 0;
             tabControl.Size = new Size(1500, 789);
@@ -211,9 +218,9 @@
             tabChannels.Controls.Add(splitContainer1);
             tabChannels.Controls.Add(panel1);
             tabChannels.Location = new Point(4, 34);
-            tabChannels.Margin = new Padding(4, 4, 4, 4);
+            tabChannels.Margin = new Padding(4);
             tabChannels.Name = "tabChannels";
-            tabChannels.Padding = new Padding(4, 4, 4, 4);
+            tabChannels.Padding = new Padding(4);
             tabChannels.Size = new Size(1492, 751);
             tabChannels.TabIndex = 0;
             tabChannels.Text = "Channels";
@@ -223,7 +230,7 @@
             // 
             splitContainer1.Dock = DockStyle.Fill;
             splitContainer1.Location = new Point(4, 4);
-            splitContainer1.Margin = new Padding(4, 4, 4, 4);
+            splitContainer1.Margin = new Padding(4);
             splitContainer1.Name = "splitContainer1";
             // 
             // splitContainer1.Panel1
@@ -245,7 +252,7 @@
             lstCategories.FormattingEnabled = true;
             lstCategories.ItemHeight = 25;
             lstCategories.Location = new Point(0, 0);
-            lstCategories.Margin = new Padding(4, 4, 4, 4);
+            lstCategories.Margin = new Padding(4);
             lstCategories.Name = "lstCategories";
             lstCategories.Size = new Size(312, 681);
             lstCategories.TabIndex = 0;
@@ -258,7 +265,7 @@
             lstChannels.Dock = DockStyle.Fill;
             lstChannels.FullRowSelect = true;
             lstChannels.Location = new Point(0, 31);
-            lstChannels.Margin = new Padding(4, 4, 4, 4);
+            lstChannels.Margin = new Padding(4);
             lstChannels.Name = "lstChannels";
             lstChannels.Size = new Size(1167, 650);
             lstChannels.TabIndex = 0;
@@ -320,7 +327,7 @@
             // 
             txtSearch.Dock = DockStyle.Top;
             txtSearch.Location = new Point(0, 0);
-            txtSearch.Margin = new Padding(4, 4, 4, 4);
+            txtSearch.Margin = new Padding(4);
             txtSearch.Name = "txtSearch";
             txtSearch.PlaceholderText = "Search channels...";
             txtSearch.Size = new Size(1167, 31);
@@ -335,7 +342,7 @@
             panel1.Controls.Add(btnRefresh);
             panel1.Dock = DockStyle.Bottom;
             panel1.Location = new Point(4, 685);
-            panel1.Margin = new Padding(4, 4, 4, 4);
+            panel1.Margin = new Padding(4);
             panel1.Name = "panel1";
             panel1.Size = new Size(1484, 62);
             panel1.TabIndex = 1;
@@ -343,7 +350,7 @@
             // btnScheduleRecord
             // 
             btnScheduleRecord.Location = new Point(475, 12);
-            btnScheduleRecord.Margin = new Padding(4, 4, 4, 4);
+            btnScheduleRecord.Margin = new Padding(4);
             btnScheduleRecord.Name = "btnScheduleRecord";
             btnScheduleRecord.Size = new Size(188, 38);
             btnScheduleRecord.TabIndex = 3;
@@ -354,7 +361,7 @@
             // btnRecord
             // 
             btnRecord.Location = new Point(312, 12);
-            btnRecord.Margin = new Padding(4, 4, 4, 4);
+            btnRecord.Margin = new Padding(4);
             btnRecord.Name = "btnRecord";
             btnRecord.Size = new Size(150, 38);
             btnRecord.TabIndex = 2;
@@ -365,7 +372,7 @@
             // btnStopPreview
             // 
             btnStopPreview.Location = new Point(150, 12);
-            btnStopPreview.Margin = new Padding(4, 4, 4, 4);
+            btnStopPreview.Margin = new Padding(4);
             btnStopPreview.Name = "btnStopPreview";
             btnStopPreview.Size = new Size(150, 38);
             btnStopPreview.TabIndex = 1;
@@ -376,7 +383,7 @@
             // btnRefresh
             // 
             btnRefresh.Location = new Point(12, 12);
-            btnRefresh.Margin = new Padding(4, 4, 4, 4);
+            btnRefresh.Margin = new Padding(4);
             btnRefresh.Name = "btnRefresh";
             btnRefresh.Size = new Size(125, 38);
             btnRefresh.TabIndex = 0;
@@ -389,10 +396,10 @@
             tabRecordings.Controls.Add(lstRecordings);
             tabRecordings.Controls.Add(panel2);
             tabRecordings.Location = new Point(4, 34);
-            tabRecordings.Margin = new Padding(4, 4, 4, 4);
+            tabRecordings.Margin = new Padding(4);
             tabRecordings.Name = "tabRecordings";
-            tabRecordings.Padding = new Padding(4, 4, 4, 4);
-            tabRecordings.Size = new Size(1492, 774);
+            tabRecordings.Padding = new Padding(4);
+            tabRecordings.Size = new Size(1492, 751);
             tabRecordings.TabIndex = 1;
             tabRecordings.Text = "Recordings";
             tabRecordings.UseVisualStyleBackColor = true;
@@ -404,9 +411,9 @@
             lstRecordings.Dock = DockStyle.Fill;
             lstRecordings.FullRowSelect = true;
             lstRecordings.Location = new Point(4, 4);
-            lstRecordings.Margin = new Padding(4, 4, 4, 4);
+            lstRecordings.Margin = new Padding(4);
             lstRecordings.Name = "lstRecordings";
-            lstRecordings.Size = new Size(1484, 704);
+            lstRecordings.Size = new Size(1484, 681);
             lstRecordings.TabIndex = 0;
             lstRecordings.UseCompatibleStateImageBehavior = false;
             lstRecordings.View = View.Details;
@@ -449,8 +456,8 @@
             panel2.Controls.Add(btnPlayRecording);
             panel2.Controls.Add(btnStopRecording);
             panel2.Dock = DockStyle.Bottom;
-            panel2.Location = new Point(4, 708);
-            panel2.Margin = new Padding(4, 4, 4, 4);
+            panel2.Location = new Point(4, 685);
+            panel2.Margin = new Padding(4);
             panel2.Name = "panel2";
             panel2.Size = new Size(1484, 62);
             panel2.TabIndex = 1;
@@ -458,7 +465,7 @@
             // btnOpenRecordingFolder
             // 
             btnOpenRecordingFolder.Location = new Point(500, 12);
-            btnOpenRecordingFolder.Margin = new Padding(4, 4, 4, 4);
+            btnOpenRecordingFolder.Margin = new Padding(4);
             btnOpenRecordingFolder.Name = "btnOpenRecordingFolder";
             btnOpenRecordingFolder.Size = new Size(188, 38);
             btnOpenRecordingFolder.TabIndex = 3;
@@ -469,7 +476,7 @@
             // btnDeleteRecording
             // 
             btnDeleteRecording.Location = new Point(338, 12);
-            btnDeleteRecording.Margin = new Padding(4, 4, 4, 4);
+            btnDeleteRecording.Margin = new Padding(4);
             btnDeleteRecording.Name = "btnDeleteRecording";
             btnDeleteRecording.Size = new Size(150, 38);
             btnDeleteRecording.TabIndex = 2;
@@ -480,7 +487,7 @@
             // btnPlayRecording
             // 
             btnPlayRecording.Location = new Point(175, 12);
-            btnPlayRecording.Margin = new Padding(4, 4, 4, 4);
+            btnPlayRecording.Margin = new Padding(4);
             btnPlayRecording.Name = "btnPlayRecording";
             btnPlayRecording.Size = new Size(150, 38);
             btnPlayRecording.TabIndex = 1;
@@ -491,7 +498,7 @@
             // btnStopRecording
             // 
             btnStopRecording.Location = new Point(12, 12);
-            btnStopRecording.Margin = new Padding(4, 4, 4, 4);
+            btnStopRecording.Margin = new Padding(4);
             btnStopRecording.Name = "btnStopRecording";
             btnStopRecording.Size = new Size(150, 38);
             btnStopRecording.TabIndex = 0;
@@ -504,9 +511,9 @@
             tabScheduled.Controls.Add(lstScheduled);
             tabScheduled.Controls.Add(panel3);
             tabScheduled.Location = new Point(4, 34);
-            tabScheduled.Margin = new Padding(4, 4, 4, 4);
+            tabScheduled.Margin = new Padding(4);
             tabScheduled.Name = "tabScheduled";
-            tabScheduled.Size = new Size(1492, 774);
+            tabScheduled.Size = new Size(1492, 751);
             tabScheduled.TabIndex = 2;
             tabScheduled.Text = "Scheduled";
             tabScheduled.UseVisualStyleBackColor = true;
@@ -517,9 +524,9 @@
             lstScheduled.Dock = DockStyle.Fill;
             lstScheduled.FullRowSelect = true;
             lstScheduled.Location = new Point(0, 0);
-            lstScheduled.Margin = new Padding(4, 4, 4, 4);
+            lstScheduled.Margin = new Padding(4);
             lstScheduled.Name = "lstScheduled";
-            lstScheduled.Size = new Size(1492, 712);
+            lstScheduled.Size = new Size(1492, 689);
             lstScheduled.TabIndex = 0;
             lstScheduled.UseCompatibleStateImageBehavior = false;
             lstScheduled.View = View.Details;
@@ -545,8 +552,8 @@
             panel3.Controls.Add(btnRemoveSchedule);
             panel3.Controls.Add(btnAddSchedule);
             panel3.Dock = DockStyle.Bottom;
-            panel3.Location = new Point(0, 712);
-            panel3.Margin = new Padding(4, 4, 4, 4);
+            panel3.Location = new Point(0, 689);
+            panel3.Margin = new Padding(4);
             panel3.Name = "panel3";
             panel3.Size = new Size(1492, 62);
             panel3.TabIndex = 1;
@@ -554,7 +561,7 @@
             // btnRefreshScheduled
             // 
             btnRefreshScheduled.Location = new Point(338, 12);
-            btnRefreshScheduled.Margin = new Padding(4, 4, 4, 4);
+            btnRefreshScheduled.Margin = new Padding(4);
             btnRefreshScheduled.Name = "btnRefreshScheduled";
             btnRefreshScheduled.Size = new Size(150, 38);
             btnRefreshScheduled.TabIndex = 2;
@@ -565,7 +572,7 @@
             // btnRemoveSchedule
             // 
             btnRemoveSchedule.Location = new Point(175, 12);
-            btnRemoveSchedule.Margin = new Padding(4, 4, 4, 4);
+            btnRemoveSchedule.Margin = new Padding(4);
             btnRemoveSchedule.Name = "btnRemoveSchedule";
             btnRemoveSchedule.Size = new Size(150, 38);
             btnRemoveSchedule.TabIndex = 1;
@@ -576,7 +583,7 @@
             // btnAddSchedule
             // 
             btnAddSchedule.Location = new Point(12, 12);
-            btnAddSchedule.Margin = new Padding(4, 4, 4, 4);
+            btnAddSchedule.Margin = new Padding(4);
             btnAddSchedule.Name = "btnAddSchedule";
             btnAddSchedule.Size = new Size(150, 38);
             btnAddSchedule.TabIndex = 0;
@@ -585,14 +592,13 @@
             // 
             // tabSettings
             // 
-            tabSettings.Controls.Add(groupBox2);
             tabSettings.Controls.Add(groupBoxStreamlink);
-            tabSettings.Controls.Add(groupBoxEpg);
+            tabSettings.Controls.Add(groupBox2);
             tabSettings.Controls.Add(groupBoxSources);
             tabSettings.Location = new Point(4, 34);
-            tabSettings.Margin = new Padding(4, 4, 4, 4);
+            tabSettings.Margin = new Padding(4);
             tabSettings.Name = "tabSettings";
-            tabSettings.Size = new Size(1492, 774);
+            tabSettings.Size = new Size(1492, 751);
             tabSettings.TabIndex = 3;
             tabSettings.Text = "Settings";
             tabSettings.UseVisualStyleBackColor = true;
@@ -603,9 +609,9 @@
             groupBox2.Controls.Add(txtRecordingPath);
             groupBox2.Controls.Add(btnBrowseRecordingPath);
             groupBox2.Location = new Point(25, 500);
-            groupBox2.Margin = new Padding(4, 4, 4, 4);
+            groupBox2.Margin = new Padding(4);
             groupBox2.Name = "groupBox2";
-            groupBox2.Padding = new Padding(4, 4, 4, 4);
+            groupBox2.Padding = new Padding(4);
             groupBox2.Size = new Size(750, 125);
             groupBox2.TabIndex = 3;
             groupBox2.TabStop = false;
@@ -624,7 +630,7 @@
             // txtRecordingPath
             // 
             txtRecordingPath.Location = new Point(181, 46);
-            txtRecordingPath.Margin = new Padding(4, 4, 4, 4);
+            txtRecordingPath.Margin = new Padding(4);
             txtRecordingPath.Name = "txtRecordingPath";
             txtRecordingPath.Size = new Size(424, 31);
             txtRecordingPath.TabIndex = 1;
@@ -632,7 +638,7 @@
             // btnBrowseRecordingPath
             // 
             btnBrowseRecordingPath.Location = new Point(619, 44);
-            btnBrowseRecordingPath.Margin = new Padding(4, 4, 4, 4);
+            btnBrowseRecordingPath.Margin = new Padding(4);
             btnBrowseRecordingPath.Name = "btnBrowseRecordingPath";
             btnBrowseRecordingPath.Size = new Size(94, 38);
             btnBrowseRecordingPath.TabIndex = 2;
@@ -640,106 +646,14 @@
             btnBrowseRecordingPath.UseVisualStyleBackColor = true;
             btnBrowseRecordingPath.Click += BtnBrowseRecordingPath_Click;
             // 
-            // groupBoxStreamlink
-            // 
-            groupBoxStreamlink.Controls.Add(btnCheckStreamlink);
-            groupBoxStreamlink.Controls.Add(txtStreamlinkOptions);
-            groupBoxStreamlink.Controls.Add(lblStreamlinkOptions);
-            groupBoxStreamlink.Controls.Add(cboStreamlinkQuality);
-            groupBoxStreamlink.Controls.Add(lblStreamlinkQuality);
-            groupBoxStreamlink.Controls.Add(chkUseStreamlink);
-            groupBoxStreamlink.Controls.Add(lblStreamlinkInfo);
-            groupBoxStreamlink.Location = new Point(25, 350);
-            groupBoxStreamlink.Margin = new Padding(4, 4, 4, 4);
-            groupBoxStreamlink.Name = "groupBoxStreamlink";
-            groupBoxStreamlink.Padding = new Padding(4, 4, 4, 4);
-            groupBoxStreamlink.Size = new Size(750, 125);
-            groupBoxStreamlink.TabIndex = 2;
-            groupBoxStreamlink.TabStop = false;
-            groupBoxStreamlink.Text = "Streamlink Settings";
-            // 
-            // lblStreamlinkInfo
-            // 
-            lblStreamlinkInfo.Location = new Point(25, 28);
-            lblStreamlinkInfo.Margin = new Padding(4, 0, 4, 0);
-            lblStreamlinkInfo.Name = "lblStreamlinkInfo";
-            lblStreamlinkInfo.Size = new Size(550, 25);
-            lblStreamlinkInfo.TabIndex = 0;
-            lblStreamlinkInfo.Text = "Use Streamlink for better compatibility with various stream sources";
-            // 
-            // chkUseStreamlink
-            // 
-            chkUseStreamlink.AutoSize = true;
-            chkUseStreamlink.Location = new Point(25, 58);
-            chkUseStreamlink.Margin = new Padding(4, 4, 4, 4);
-            chkUseStreamlink.Name = "chkUseStreamlink";
-            chkUseStreamlink.Size = new Size(253, 29);
-            chkUseStreamlink.TabIndex = 1;
-            chkUseStreamlink.Text = "Use Streamlink for recording";
-            chkUseStreamlink.UseVisualStyleBackColor = true;
-            chkUseStreamlink.CheckedChanged += ChkUseStreamlink_CheckedChanged;
-            // 
-            // lblStreamlinkQuality
-            // 
-            lblStreamlinkQuality.AutoSize = true;
-            lblStreamlinkQuality.Location = new Point(310, 60);
-            lblStreamlinkQuality.Margin = new Padding(4, 0, 4, 0);
-            lblStreamlinkQuality.Name = "lblStreamlinkQuality";
-            lblStreamlinkQuality.Size = new Size(71, 25);
-            lblStreamlinkQuality.TabIndex = 2;
-            lblStreamlinkQuality.Text = "Quality:";
-            // 
-            // cboStreamlinkQuality
-            // 
-            cboStreamlinkQuality.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboStreamlinkQuality.FormattingEnabled = true;
-            cboStreamlinkQuality.Items.AddRange(new object[] { "best", "worst", "1080p", "720p", "480p", "360p", "source" });
-            cboStreamlinkQuality.Location = new Point(389, 56);
-            cboStreamlinkQuality.Margin = new Padding(4, 4, 4, 4);
-            cboStreamlinkQuality.Name = "cboStreamlinkQuality";
-            cboStreamlinkQuality.Size = new Size(150, 33);
-            cboStreamlinkQuality.TabIndex = 3;
-            // 
-            // lblStreamlinkOptions
-            // 
-            lblStreamlinkOptions.AutoSize = true;
-            lblStreamlinkOptions.Location = new Point(25, 94);
-            lblStreamlinkOptions.Margin = new Padding(4, 0, 4, 0);
-            lblStreamlinkOptions.Name = "lblStreamlinkOptions";
-            lblStreamlinkOptions.Size = new Size(78, 25);
-            lblStreamlinkOptions.TabIndex = 4;
-            lblStreamlinkOptions.Text = "Options:";
-            lblStreamlinkOptions.Visible = false;
-            // 
-            // txtStreamlinkOptions
-            // 
-            txtStreamlinkOptions.Location = new Point(111, 90);
-            txtStreamlinkOptions.Margin = new Padding(4, 4, 4, 4);
-            txtStreamlinkOptions.Name = "txtStreamlinkOptions";
-            txtStreamlinkOptions.PlaceholderText = "Additional streamlink options";
-            txtStreamlinkOptions.Size = new Size(428, 31);
-            txtStreamlinkOptions.TabIndex = 5;
-            txtStreamlinkOptions.Visible = false;
-            // 
-            // btnCheckStreamlink
-            // 
-            btnCheckStreamlink.Location = new Point(555, 56);
-            btnCheckStreamlink.Margin = new Padding(4, 4, 4, 4);
-            btnCheckStreamlink.Name = "btnCheckStreamlink";
-            btnCheckStreamlink.Size = new Size(158, 35);
-            btnCheckStreamlink.TabIndex = 6;
-            btnCheckStreamlink.Text = "Check Streamlink";
-            btnCheckStreamlink.UseVisualStyleBackColor = true;
-            btnCheckStreamlink.Click += BtnCheckStreamlink_Click;
-            // 
             // groupBoxSources
             // 
             groupBoxSources.Controls.Add(lblSourcesInfo);
             groupBoxSources.Controls.Add(btnManageSources);
             groupBoxSources.Location = new Point(25, 25);
-            groupBoxSources.Margin = new Padding(4, 4, 4, 4);
+            groupBoxSources.Margin = new Padding(4);
             groupBoxSources.Name = "groupBoxSources";
-            groupBoxSources.Padding = new Padding(4, 4, 4, 4);
+            groupBoxSources.Padding = new Padding(4);
             groupBoxSources.Size = new Size(750, 150);
             groupBoxSources.TabIndex = 0;
             groupBoxSources.TabStop = false;
@@ -757,13 +671,18 @@
             // btnManageSources
             // 
             btnManageSources.Location = new Point(25, 94);
-            btnManageSources.Margin = new Padding(4, 4, 4, 4);
+            btnManageSources.Margin = new Padding(4);
             btnManageSources.Name = "btnManageSources";
             btnManageSources.Size = new Size(188, 38);
             btnManageSources.TabIndex = 1;
             btnManageSources.Text = "Manage Sources...";
             btnManageSources.UseVisualStyleBackColor = true;
             btnManageSources.Click += BtnManageSources_Click;
+            // 
+            // menuAssignEpg
+            // 
+            menuAssignEpg.Name = "menuAssignEpg";
+            menuAssignEpg.Size = new Size(32, 19);
             // 
             // btnViewEpg
             // 
@@ -891,6 +810,90 @@
             toolStripStatusLabel.Size = new Size(129, 25);
             toolStripStatusLabel.Text = "Not connected";
             // 
+            // groupBoxStreamlink
+            // 
+            groupBoxStreamlink.Controls.Add(txtStreamlinkOptions);
+            groupBoxStreamlink.Controls.Add(lblStreamlinkOptions);
+            groupBoxStreamlink.Controls.Add(btnCheckStreamlink);
+            groupBoxStreamlink.Controls.Add(cboStreamlinkQuality);
+            groupBoxStreamlink.Controls.Add(lblStreamlinkQuality);
+            groupBoxStreamlink.Controls.Add(chkUseStreamlink);
+            groupBoxStreamlink.Controls.Add(lblStreamlinkInfo);
+            groupBoxStreamlink.Location = new Point(25, 350);
+            groupBoxStreamlink.Name = "groupBoxStreamlink";
+            groupBoxStreamlink.Size = new Size(750, 125);
+            groupBoxStreamlink.TabIndex = 4;
+            groupBoxStreamlink.TabStop = false;
+            groupBoxStreamlink.Text = "Streamlink Settings";
+            // 
+            // lblStreamlinkInfo
+            // 
+            lblStreamlinkInfo.AutoSize = true;
+            lblStreamlinkInfo.Location = new Point(25, 28);
+            lblStreamlinkInfo.Name = "lblStreamlinkInfo";
+            lblStreamlinkInfo.Size = new Size(540, 25);
+            lblStreamlinkInfo.TabIndex = 0;
+            lblStreamlinkInfo.Text = "Use Streamlink for better compatibility with various stream sources";
+            // 
+            // chkUseStreamlink
+            // 
+            chkUseStreamlink.AutoSize = true;
+            chkUseStreamlink.Location = new Point(25, 58);
+            chkUseStreamlink.Name = "chkUseStreamlink";
+            chkUseStreamlink.Size = new Size(263, 29);
+            chkUseStreamlink.TabIndex = 1;
+            chkUseStreamlink.Text = "Use Streamlink for recording";
+            chkUseStreamlink.UseVisualStyleBackColor = true;
+            chkUseStreamlink.CheckedChanged += ChkUseStreamlink_CheckedChanged;
+            // 
+            // lblStreamlinkQuality
+            // 
+            lblStreamlinkQuality.AutoSize = true;
+            lblStreamlinkQuality.Location = new Point(310, 60);
+            lblStreamlinkQuality.Name = "lblStreamlinkQuality";
+            lblStreamlinkQuality.Size = new Size(72, 25);
+            lblStreamlinkQuality.TabIndex = 2;
+            lblStreamlinkQuality.Text = "Quality:";
+            // 
+            // cboStreamlinkQuality
+            // 
+            cboStreamlinkQuality.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboStreamlinkQuality.FormattingEnabled = true;
+            cboStreamlinkQuality.Items.AddRange(new object[] { "best", "worst", "1080p", "720p", "480p", "360p", "source" });
+            cboStreamlinkQuality.Location = new Point(389, 60);
+            cboStreamlinkQuality.Name = "cboStreamlinkQuality";
+            cboStreamlinkQuality.Size = new Size(150, 33);
+            cboStreamlinkQuality.TabIndex = 3;
+            // 
+            // btnCheckStreamlink
+            // 
+            btnCheckStreamlink.Location = new Point(555, 56);
+            btnCheckStreamlink.Name = "btnCheckStreamlink";
+            btnCheckStreamlink.Size = new Size(158, 35);
+            btnCheckStreamlink.TabIndex = 4;
+            btnCheckStreamlink.Text = "Check Streamlink";
+            btnCheckStreamlink.UseVisualStyleBackColor = true;
+            btnCheckStreamlink.Click += BtnCheckStreamlink_Click;
+            // 
+            // lblStreamlinkOptions
+            // 
+            lblStreamlinkOptions.AutoSize = true;
+            lblStreamlinkOptions.Location = new Point(25, 94);
+            lblStreamlinkOptions.Name = "lblStreamlinkOptions";
+            lblStreamlinkOptions.Size = new Size(80, 25);
+            lblStreamlinkOptions.TabIndex = 5;
+            lblStreamlinkOptions.Text = "Options:";
+            lblStreamlinkOptions.Visible = false;
+            // 
+            // txtStreamlinkOptions
+            // 
+            txtStreamlinkOptions.Location = new Point(111, 90);
+            txtStreamlinkOptions.Name = "txtStreamlinkOptions";
+            txtStreamlinkOptions.PlaceholderText = "Additional streamlink options";
+            txtStreamlinkOptions.Size = new Size(428, 31);
+            txtStreamlinkOptions.TabIndex = 6;
+            txtStreamlinkOptions.Visible = false;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(10F, 25F);
@@ -900,7 +903,7 @@
             Controls.Add(statusStrip);
             Controls.Add(menuStrip);
             MainMenuStrip = menuStrip;
-            Margin = new Padding(4, 4, 4, 4);
+            Margin = new Padding(4);
             Name = "Form1";
             Text = "IPTV DVR - Xtream Codes";
             FormClosing += Form1_FormClosing;
@@ -921,12 +924,11 @@
             tabSettings.ResumeLayout(false);
             groupBox2.ResumeLayout(false);
             groupBox2.PerformLayout();
-            groupBoxStreamlink.ResumeLayout(false);
-            groupBoxStreamlink.PerformLayout();
-            groupBoxEpg.ResumeLayout(false);
             groupBoxSources.ResumeLayout(false);
             statusStrip.ResumeLayout(false);
             statusStrip.PerformLayout();
+            groupBoxStreamlink.ResumeLayout(false);
+            groupBoxStreamlink.PerformLayout();
             ResumeLayout(false);
             PerformLayout();
         }
@@ -1015,5 +1017,13 @@
         private Label lblStatus;
         private StatusStrip statusStrip;
         private ToolStripStatusLabel toolStripStatusLabel;
+        private GroupBox groupBoxStreamlink;
+        private Label lblStreamlinkInfo;
+        private CheckBox chkUseStreamlink;
+        private Label lblStreamlinkQuality;
+        private ComboBox cboStreamlinkQuality;
+        private Button btnCheckStreamlink;
+        private Label lblStreamlinkOptions;
+        private TextBox txtStreamlinkOptions;
     }
 }

@@ -1,48 +1,673 @@
 # Streamlink Integration - Implementation Summary
 
 ## Overview
-Streamlink support has been added to StreamingDVR to provide better stream compatibility and recording options. This document summarizes the implementation.
+Streamlink support has been added to StreamingDVR to provide better stream compatibility and recording options. This document summarizes the implementation with detailed before/after code examples.
 
 ## Files Created
 
 ### 1. StreamlinkValidator.cs
 **Location:** `StreamingDVR\Utilities\StreamlinkValidator.cs`
 **Purpose:** Utility class to check Streamlink availability and show installation instructions
-**Status:** ✅ Created
+**Status:** ✅ Created and Complete
 
 ## Files Modified
 
 ### 1. Configuration Service
 **File:** `StreamingDVR\Services\ConfigurationService.cs`
 
-**Added Settings:**
+#### Before (Original AppConfiguration class):
 ```csharp
-public bool UseStreamlink { get; set; } = false;
-public string StreamlinkQuality { get; set; } = "best";
-public bool StreamlinkRetryOpen { get; set; } = true;
-public int StreamlinkRetryStreams { get; set; } = 3;
-public string StreamlinkOptions { get; set; } = string.Empty;
+public class AppConfiguration
+{
+    public string ServerUrl { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string RecordingPath { get; set; } = string.Empty;
+    public bool RememberCredentials { get; set; } = false;
+    public List<IptvSource> IptvSources { get; set; } = new();
+    public List<EpgSource> EpgSources { get; set; } = new();
+    public List<ChannelEpgMapping> ChannelEpgMappings { get; set; } = new();
+}
 ```
+
+#### After (With Streamlink Settings Added):
+```csharp
+public class AppConfiguration
+{
+    public string ServerUrl { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string RecordingPath { get; set; } = string.Empty;
+    public bool RememberCredentials { get; set; } = false;
+    public List<IptvSource> IptvSources { get; set; } = new();
+    public List<EpgSource> EpgSources { get; set; } = new();
+    public List<ChannelEpgMapping> ChannelEpgMappings { get; set; } = new();
+
+    // Streamlink settings
+    public bool UseStreamlink { get; set; } = false;
+    public string StreamlinkQuality { get; set; } = "best";
+    public bool StreamlinkRetryOpen { get; set; } = true;
+    public int StreamlinkRetryStreams { get; set; } = 3;
+    public string StreamlinkOptions { get; set; } = string.Empty;
+}
+```
+
+**Location in file:** Add these properties at the end of the `AppConfiguration` class (around line 17-21)  
 **Status:** ✅ Completed
+
+---
 
 ### 2. Recording Service  
 **File:** `StreamingDVR\Services\RecordingService.cs`
 
-**Added Fields:**
+#### A. Add Streamlink Fields (After Line 14)
+
+**Before:**
 ```csharp
-private bool _useStreamlink = false;
-private string _streamlinkQuality = "best";
-private bool _streamlinkRetryOpen = true;
-private int _streamlinkRetryStreams = 3;
-private string _streamlinkOptions = string.Empty;
+public class RecordingService
+{
+    private readonly Dictionary<string, Process> _activeRecordings = new();
+    private readonly List<Recording> _recordings = new();
+    private readonly List<ScheduledRecording> _scheduledRecordings = new();
+    private readonly string _recordingsPath;
+    private readonly System.Threading.Timer _schedulerTimer;
+    private readonly RecordingPersistenceService _persistenceService;
+    private Func<int, string, TimeSpan, Task<Recording>>? _scheduledRecordingCallback;
+
+    public event EventHandler<Recording>? RecordingStarted;
 ```
 
-**Added Methods:**
-1. `ConfigureStreamlink()` - Configure Streamlink settings
-2. `StartStreamlinkRecordingAsync()` - Start recording using Streamlink
-3. Modified `StartRecordingAsync()` to choose between FFmpeg and Streamlink
+**After:**
+```csharp
+public class RecordingService
+{
+    private readonly Dictionary<string, Process> _activeRecordings = new();
+    private readonly List<Recording> _recordings = new();
+    private readonly List<ScheduledRecording> _scheduledRecordings = new();
+    private readonly string _recordingsPath;
+    private readonly System.Threading.Timer _schedulerTimer;
+    private readonly RecordingPersistenceService _persistenceService;
+    private Func<int, string, TimeSpan, Task<Recording>>? _scheduledRecordingCallback;
+
+    // Streamlink settings
+    private bool _useStreamlink = false;
+    private string _streamlinkQuality = "best";
+    private bool _streamlinkRetryOpen = true;
+    private int _streamlinkRetryStreams = 3;
+    private string _streamlinkOptions = string.Empty;
+
+    public event EventHandler<Recording>? RecordingStarted;
+```
 
 **Status:** ✅ Completed
+
+#### B. Add ConfigureStreamlink Method (After SetScheduledRecordingCallback method, around line 88)
+
+**Add this new method:**
+```csharp
+public void ConfigureStreamlink(bool useStreamlink, string quality, bool retryOpen, int retryStreams, string options)
+{
+    _useStreamlink = useStreamlink;
+    _streamlinkQuality = quality;
+    _streamlinkRetryOpen = retryOpen;
+    _streamlinkRetryStreams = retryStreams;
+    _streamlinkOptions = options;
+}
+```
+
+**Location in file:** Add after line 87 (after `SetScheduledRecordingCallback` method)  
+**Status:** ⚠️ NEEDS TO BE ADDED
+
+#### C. Modify StartRecordingAsync Method (Around line 89-115)
+
+**Before:**
+```csharp
+public async Task<Recording> StartRecordingAsync(string channelName, int streamId, string streamUrl, TimeSpan? duration = null)
+{
+    var recording = new Recording
+    {
+        ChannelName = channelName,
+        StreamId = streamId,
+        StartTime = DateTime.Now,
+        Duration = duration,
+        Status = RecordingStatus.Recording
+    };
+
+    var sanitizedName = SanitizeFileName(channelName);
+    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+    var fileName = $"{sanitizedName}_{timestamp}.mp4";
+    recording.FilePath = Path.Combine(_recordingsPath, fileName);
+
+    try
+    {
+        var process = await StartFFmpegRecordingAsync(streamUrl, recording.FilePath, duration);
+        _activeRecordings[recording.Id] = process;
+```
+
+**After:**
+```csharp
+public async Task<Recording> StartRecordingAsync(string channelName, int streamId, string streamUrl, TimeSpan? duration = null)
+{
+    var recording = new Recording
+    {
+        ChannelName = channelName,
+        StreamId = streamId,
+        StartTime = DateTime.Now,
+        Duration = duration,
+        Status = RecordingStatus.Recording
+    };
+
+    var sanitizedName = SanitizeFileName(channelName);
+    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+    var fileName = $"{sanitizedName}_{timestamp}.mp4";
+    recording.FilePath = Path.Combine(_recordingsPath, fileName);
+
+    try
+    {
+        Process process;
+        if (_useStreamlink)
+        {
+            process = await StartStreamlinkRecordingAsync(streamUrl, recording.FilePath, duration);
+        }
+        else
+        {
+            process = await StartFFmpegRecordingAsync(streamUrl, recording.FilePath, duration);
+        }
+
+        _activeRecordings[recording.Id] = process;
+```
+
+**Status:** ✅ Completed
+
+#### D. Add StartStreamlinkRecordingAsync Method (After StartFFmpegRecordingAsync, around line 278)
+
+**Add this new method after the `StartFFmpegRecordingAsync` method:**
+```csharp
+private async Task<Process> StartStreamlinkRecordingAsync(string streamUrl, string outputPath, TimeSpan? duration)
+{
+    // Build streamlink arguments
+    var args = new List<string>();
+
+    // Quality selection
+    args.Add($"--quality \"{_streamlinkQuality}\"");
+
+    // Retry options
+    if (_streamlinkRetryOpen)
+    {
+        args.Add("--retry-open 3");
+    }
+
+    if (_streamlinkRetryStreams > 0)
+    {
+        args.Add($"--retry-streams {_streamlinkRetryStreams}");
+    }
+
+    // Output file
+    args.Add($"--output \"{outputPath}\"");
+
+    // Force progress output
+    args.Add("--force-progress");
+
+    // Additional custom options
+    if (!string.IsNullOrWhiteSpace(_streamlinkOptions))
+    {
+        args.Add(_streamlinkOptions);
+    }
+
+    // Stream URL
+    args.Add($"\"{streamUrl}\"");
+
+    var streamlinkArgs = string.Join(" ", args);
+
+    var processStartInfo = new ProcessStartInfo
+    {
+        FileName = "streamlink",
+        Arguments = streamlinkArgs,
+        UseShellExecute = false,
+        RedirectStandardInput = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        CreateNoWindow = true
+    };
+
+    var process = new Process { StartInfo = processStartInfo };
+    process.Start();
+
+    // Wait a bit to check if streamlink starts successfully
+    await Task.Delay(2000);
+
+    if (process.HasExited && process.ExitCode != 0)
+    {
+        var error = await process.StandardError.ReadToEndAsync();
+        throw new Exception($"Streamlink failed to start: {error}");
+    }
+
+    // Handle duration limit if specified
+    if (duration.HasValue)
+    {
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(duration.Value);
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill();
+                }
+            }
+            catch { }
+        });
+    }
+
+    return process;
+}
+```
+
+**Status:** ✅ Completed
+
+---
+
+### 3. Form1.cs - Event Handlers and Configuration
+**File:** `StreamingDVR\Form1.cs`
+
+#### A. Uncomment ConfigureStreamlink Call in InitializeRecordingService (Around line 164-172)
+
+**Before (Currently Commented Out):**
+```csharp
+private void InitializeRecordingService(string path)
+{
+    _recordingService?.Dispose();
+    _recordingService = new RecordingService(path);
+
+    // TODO: Configure Streamlink settings when UI controls are added
+    // var config = _configService.LoadConfiguration();
+    // _recordingService.ConfigureStreamlink(
+    //     config.UseStreamlink,
+    //     config.StreamlinkQuality,
+    //     config.StreamlinkRetryOpen,
+    //     config.StreamlinkRetryStreams,
+    //     config.StreamlinkOptions
+    // );
+
+    _recordingService.RecordingStarted += (s, rec) => BeginInvoke(() =>
+```
+
+**After (Uncommented):**
+```csharp
+private void InitializeRecordingService(string path)
+{
+    _recordingService?.Dispose();
+    _recordingService = new RecordingService(path);
+
+    // Configure Streamlink settings
+    var config = _configService.LoadConfiguration();
+    _recordingService.ConfigureStreamlink(
+        config.UseStreamlink,
+        config.StreamlinkQuality,
+        config.StreamlinkRetryOpen,
+        config.StreamlinkRetryStreams,
+        config.StreamlinkOptions
+    );
+
+    _recordingService.RecordingStarted += (s, rec) => BeginInvoke(() =>
+```
+
+**Status:** ⚠️ UNCOMMENT AFTER ADDING UI CONTROLS
+
+#### B. Uncomment Streamlink Settings in SaveConfiguration (Around line 144-147)
+
+**Before (Currently Commented Out):**
+```csharp
+private void SaveConfiguration()
+{
+    try
+    {
+        var config = new AppConfiguration
+        {
+            ServerUrl = txtServerUrl.Text,
+            Username = txtUsername.Text,
+            Password = txtPassword.Text,
+            RecordingPath = txtRecordingPath.Text,
+            RememberCredentials = true,
+            // TODO: Save Streamlink settings when UI controls are added
+            // UseStreamlink = chkUseStreamlink.Checked,
+            // StreamlinkQuality = cboStreamlinkQuality.SelectedItem?.ToString() ?? "best",
+            // StreamlinkOptions = txtStreamlinkOptions.Text
+        };
+```
+
+**After (Uncommented):**
+```csharp
+private void SaveConfiguration()
+{
+    try
+    {
+        var config = new AppConfiguration
+        {
+            ServerUrl = txtServerUrl.Text,
+            Username = txtUsername.Text,
+            Password = txtPassword.Text,
+            RecordingPath = txtRecordingPath.Text,
+            RememberCredentials = true,
+            UseStreamlink = chkUseStreamlink.Checked,
+            StreamlinkQuality = cboStreamlinkQuality.SelectedItem?.ToString() ?? "best",
+            StreamlinkOptions = txtStreamlinkOptions.Text
+        };
+```
+
+**Status:** ⚠️ UNCOMMENT AFTER ADDING UI CONTROLS
+
+#### C. Add New Event Handlers (Add at end of Form1.cs, before closing brace)
+
+**Add these three new methods:**
+```csharp
+// Streamlink Event Handlers
+
+private void ChkUseStreamlink_CheckedChanged(object sender, EventArgs e)
+{
+    // Enable/disable Streamlink quality controls based on checkbox
+    cboStreamlinkQuality.Enabled = chkUseStreamlink.Checked;
+    btnCheckStreamlink.Enabled = chkUseStreamlink.Checked;
+
+    // Save configuration when changed
+    SaveConfiguration();
+
+    // Reconfigure recording service
+    var config = _configService.LoadConfiguration();
+    _recordingService?.ConfigureStreamlink(
+        config.UseStreamlink,
+        config.StreamlinkQuality,
+        config.StreamlinkRetryOpen,
+        config.StreamlinkRetryStreams,
+        config.StreamlinkOptions
+    );
+
+    UpdateStatus(chkUseStreamlink.Checked 
+        ? "Streamlink enabled for recordings" 
+        : "Using FFmpeg for recordings");
+}
+
+private void BtnCheckStreamlink_Click(object sender, EventArgs e)
+{
+    CheckStreamlinkAvailability();
+}
+
+private void CheckStreamlinkAvailability()
+{
+    if (StreamlinkValidator.IsStreamlinkAvailable())
+    {
+        var version = StreamlinkValidator.GetStreamlinkVersion();
+        MessageBox.Show(
+            $"Streamlink is installed and available!\n\n{version}",
+            "Streamlink Status",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
+    else
+    {
+        StreamlinkValidator.ShowStreamlinkInstallationInstructions();
+    }
+}
+```
+
+**Location in file:** Add at the end of Form1.cs, just before the final closing braces (around line 1235)  
+**Status:** ⚠️ NEEDS TO BE ADDED AFTER UI CONTROLS ARE ADDED
+
+#### D. Add LoadConfiguration Streamlink Loading (In LoadConfiguration method, around line 110-130)
+
+**Find the LoadConfiguration method and add Streamlink loading after existing configuration loads:**
+
+```csharp
+private void LoadConfiguration()
+{
+    var config = _configService.LoadConfiguration();
+
+    // Existing configuration loading...
+    txtServerUrl.Text = config.ServerUrl;
+    txtUsername.Text = config.Username;
+    txtPassword.Text = config.Password;
+    txtRecordingPath.Text = config.RecordingPath;
+
+    // ADD THESE LINES for Streamlink:
+    chkUseStreamlink.Checked = config.UseStreamlink;
+    cboStreamlinkQuality.SelectedItem = config.StreamlinkQuality;
+    if (cboStreamlinkQuality.SelectedItem == null)
+        cboStreamlinkQuality.SelectedIndex = 0; // Default to "best"
+    txtStreamlinkOptions.Text = config.StreamlinkOptions;
+
+    // Enable/disable quality controls based on checkbox state
+    cboStreamlinkQuality.Enabled = chkUseStreamlink.Checked;
+    btnCheckStreamlink.Enabled = chkUseStreamlink.Checked;
+}
+```
+
+**Status:** ⚠️ ADD AFTER UI CONTROLS ARE ADDED
+
+---
+
+## UI Implementation (Pending Manual Addition)
+
+Due to the complexity of Windows Forms Designer files, the following UI elements need to be added manually through Visual Studio Designer:
+
+### Settings Tab - New GroupBox: "Streamlink Settings"
+
+**Location:** Settings tab, between "EPG Sources" and "Recording Settings"
+
+**Controls to Add:**
+
+1. **groupBoxStreamlink** (GroupBox)
+   - Location: 25, 350
+   - Size: 750, 125
+   - Text: "Streamlink Settings"
+
+2. **lblStreamlinkInfo** (Label)
+   - Parent: groupBoxStreamlink
+   - Location: 25, 28
+   - Text: "Use Streamlink for better compatibility with various stream sources"
+
+3. **chkUseStreamlink** (CheckBox)
+   - Parent: groupBoxStreamlink
+   - Location: 25, 58
+   - Text: "Use Streamlink for recording"
+   - Event: CheckedChanged → ChkUseStreamlink_CheckedChanged
+
+4. **lblStreamlinkQuality** (Label)
+   - Parent: groupBoxStreamlink
+   - Location: 310, 60
+   - Text: "Quality:"
+
+5. **cboStreamlinkQuality** (ComboBox)
+   - Parent: groupBoxStreamlink
+   - Location: 389, 56
+   - Size: 150, 33
+   - DropDownStyle: DropDownList
+   - Items: best, worst, 1080p, 720p, 480p, 360p, source
+
+6. **btnCheckStreamlink** (Button)
+   - Parent: groupBoxStreamlink
+   - Location: 555, 56
+   - Size: 158, 35
+   - Text: "Check Streamlink"
+   - Event: Click → BtnCheckStreamlink_Click
+
+7. **lblStreamlinkOptions** (Label) - Advanced, Optional
+   - Parent: groupBoxStreamlink
+   - Location: 25, 94
+   - Text: "Options:"
+   - Visible: false
+
+8. **txtStreamlinkOptions** (TextBox) - Advanced, Optional
+   - Parent: groupBoxStreamlink
+   - Location: 111, 90
+   - Size: 428, 31
+   - PlaceholderText: "Additional streamlink options"
+   - Visible: false
+
+---
+
+## Implementation Checklist
+
+### ✅ Completed (Backend):
+- [x] ConfigurationService - Streamlink properties added
+- [x] RecordingService - Streamlink fields added
+- [x] RecordingService - StartStreamlinkRecordingAsync method added
+- [x] RecordingService - StartRecordingAsync modified to choose FFmpeg/Streamlink
+- [x] StreamlinkValidator utility created
+- [x] Form1.cs - SaveConfiguration has TODO comments for Streamlink
+- [x] Form1.cs - InitializeRecordingService has TODO comments for ConfigureStreamlink
+
+### ⚠️ Pending (Requires Manual UI + Code Updates):
+- [ ] **ADD:** RecordingService.ConfigureStreamlink() method (see section 2B above)
+- [ ] **ADD UI:** groupBoxStreamlink and all child controls via Visual Studio Designer
+- [ ] **UNCOMMENT:** SaveConfiguration Streamlink lines (see section 3B above)
+- [ ] **UNCOMMENT:** InitializeRecordingService ConfigureStreamlink call (see section 3A above)
+- [ ] **ADD:** Three event handler methods to Form1.cs (see section 3C above)
+- [ ] **ADD:** LoadConfiguration Streamlink code (see section 3D above)
+- [ ] **WIRE:** Event handlers in Designer Properties window
+
+---
+
+## Step-by-Step Implementation Guide
+
+### Step 1: Add Missing RecordingService.ConfigureStreamlink Method
+**File:** `StreamingDVR\Services\RecordingService.cs`  
+**Location:** After line 87 (after `SetScheduledRecordingCallback` method)
+
+```csharp
+public void ConfigureStreamlink(bool useStreamlink, string quality, bool retryOpen, int retryStreams, string options)
+{
+    _useStreamlink = useStreamlink;
+    _streamlinkQuality = quality;
+    _streamlinkRetryOpen = retryOpen;
+    _streamlinkRetryStreams = retryStreams;
+    _streamlinkOptions = options;
+}
+```
+
+### Step 2: Add UI Controls Using Visual Studio Designer
+
+1. Open `Form1.cs` in Designer view (right-click Form1.cs → View Designer)
+2. Click on the TabControl and select the "Settings" tab
+3. From the Toolbox, drag a **GroupBox** onto the Settings tab
+4. Set GroupBox properties:
+   - Name: `groupBoxStreamlink`
+   - Text: "Streamlink Settings"
+   - Location: 25, 350
+   - Size: 750, 125
+
+5. Add child controls to the GroupBox:
+
+   **Label (Info):**
+   - Name: `lblStreamlinkInfo`
+   - Text: "Use Streamlink for better compatibility with various stream sources"
+   - Location: 25, 28
+
+   **CheckBox:**
+   - Name: `chkUseStreamlink`
+   - Text: "Use Streamlink for recording"
+   - Location: 25, 58
+
+   **Label (Quality):**
+   - Name: `lblStreamlinkQuality`
+   - Text: "Quality:"
+   - Location: 310, 60
+
+   **ComboBox:**
+   - Name: `cboStreamlinkQuality`
+   - Location: 389, 56
+   - Size: 150, 33
+   - DropDownStyle: DropDownList
+   - Click on Items property → Collection Editor → Add these items (one per line):
+     ```
+     best
+     worst
+     1080p
+     720p
+     480p
+     360p
+     source
+     ```
+
+   **Button:**
+   - Name: `btnCheckStreamlink`
+   - Text: "Check Streamlink"
+   - Location: 555, 56
+   - Size: 158, 35
+
+6. Save the Designer (Ctrl+S)
+
+### Step 3: Add Event Handler Methods to Form1.cs
+
+**File:** `StreamingDVR\Form1.cs`  
+**Location:** At the end of the file, before the final closing braces
+
+Add these three methods (copy from section 3C above):
+- `ChkUseStreamlink_CheckedChanged`
+- `BtnCheckStreamlink_Click`
+- `CheckStreamlinkAvailability`
+
+### Step 4: Wire Up Event Handlers in Designer
+
+1. Go back to Form1 Designer view
+2. Select `chkUseStreamlink` checkbox
+3. In Properties window, click the Events button (⚡ lightning bolt icon)
+4. Find "CheckedChanged" event
+5. In the dropdown, select `ChkUseStreamlink_CheckedChanged`
+
+6. Select `btnCheckStreamlink` button
+7. In Properties window Events, find "Click" event
+8. In the dropdown, select `BtnCheckStreamlink_Click`
+
+9. Save the Designer
+
+### Step 5: Uncomment SaveConfiguration Streamlink Code
+
+**File:** `StreamingDVR\Form1.cs`  
+**Location:** Around line 144-147 in the `SaveConfiguration` method
+
+Remove the `//` comment markers from these three lines:
+```csharp
+UseStreamlink = chkUseStreamlink.Checked,
+StreamlinkQuality = cboStreamlinkQuality.SelectedItem?.ToString() ?? "best",
+StreamlinkOptions = txtStreamlinkOptions.Text
+```
+
+### Step 6: Uncomment InitializeRecordingService ConfigureStreamlink Call
+
+**File:** `StreamingDVR\Form1.cs`  
+**Location:** Around line 164-172 in the `InitializeRecordingService` method
+
+Remove the `//` comment markers from these lines:
+```csharp
+var config = _configService.LoadConfiguration();
+_recordingService.ConfigureStreamlink(
+    config.UseStreamlink,
+    config.StreamlinkQuality,
+    config.StreamlinkRetryOpen,
+    config.StreamlinkRetryStreams,
+    config.StreamlinkOptions
+);
+```
+
+### Step 7: Add LoadConfiguration Streamlink Code
+
+**File:** `StreamingDVR\Form1.cs`  
+**Location:** In the `LoadConfiguration` method (around line 110-130)
+
+Add the Streamlink loading code from section 3D above.
+
+### Step 8: Build and Test
+
+1. Build the solution (Ctrl+Shift+B)
+2. Fix any errors
+3. Run the application (F5)
+4. Navigate to Settings tab
+5. You should see the new "Streamlink Settings" section
+6. Click "Check Streamlink" to verify installation
+7. Enable "Use Streamlink for recording" checkbox
+8. Try recording a channel
+
+---
 
 ## UI Implementation (Pending Manual Addition)
 

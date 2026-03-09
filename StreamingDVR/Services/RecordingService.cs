@@ -86,6 +86,15 @@ namespace StreamingDVR.Services
             _scheduledRecordingCallback = callback;
         }
 
+        public void ConfigureStreamlink(bool useStreamlink, string quality, bool retryOpen, int retryStreams, string options)
+        {
+            _useStreamlink = useStreamlink;
+            _streamlinkQuality = quality;
+            _streamlinkRetryOpen = retryOpen;
+            _streamlinkRetryStreams = retryStreams;
+            _streamlinkOptions = options;
+        }
+
         public async Task<Recording> StartRecordingAsync(string channelName, int streamId, string streamUrl, TimeSpan? duration = null)
         {
             var recording = new Recording
@@ -115,6 +124,10 @@ namespace StreamingDVR.Services
                 }
 
                 _activeRecordings[recording.Id] = process;
+
+
+
+                ;
                 _recordings.Add(recording);
 
                 RecordingStarted?.Invoke(this, recording);

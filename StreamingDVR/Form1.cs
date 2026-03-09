@@ -105,7 +105,7 @@ namespace StreamingDVR
                 txtServerUrl.Text = config.ServerUrl;
                 txtRecordingPath.Text = config.RecordingPath;
 
-                // Load Streamlink settings
+                // TODO: Load Streamlink settings when UI controls are added
                 chkUseStreamlink.Checked = config.UseStreamlink;
                 cboStreamlinkQuality.SelectedItem = config.StreamlinkQuality;
                 if (cboStreamlinkQuality.SelectedIndex == -1)
@@ -141,6 +141,7 @@ namespace StreamingDVR
                     Password = txtPassword.Text,
                     RecordingPath = txtRecordingPath.Text,
                     RememberCredentials = true,
+                    // TODO: Save Streamlink settings when UI controls are added
                     UseStreamlink = chkUseStreamlink.Checked,
                     StreamlinkQuality = cboStreamlinkQuality.SelectedItem?.ToString() ?? "best",
                     StreamlinkOptions = txtStreamlinkOptions.Text
@@ -160,7 +161,7 @@ namespace StreamingDVR
             _recordingService?.Dispose();
             _recordingService = new RecordingService(path);
 
-            // Configure Streamlink settings
+            // TODO: Configure Streamlink settings when UI controls are added
             var config = _configService.LoadConfiguration();
             _recordingService.ConfigureStreamlink(
                 config.UseStreamlink,
@@ -713,31 +714,6 @@ namespace StreamingDVR
             }
         }
 
-        private void SaveConfiguration()
-        {
-            try
-            {
-                var config = new AppConfiguration
-                {
-                    ServerUrl = txtServerUrl.Text,
-                    Username = txtUsername.Text,
-                    Password = txtPassword.Text,
-                    RecordingPath = txtRecordingPath.Text,
-                    RememberCredentials = true,
-                    UseStreamlink = chkUseStreamlink.Checked,
-                    StreamlinkQuality = cboStreamlinkQuality.SelectedItem?.ToString() ?? "best",
-                    StreamlinkOptions = txtStreamlinkOptions.Text
-                };
-
-                _configService.SaveConfiguration(config);
-                UpdateStatus("Configuration saved");
-            }
-            catch (Exception ex)
-            {
-                UpdateStatus($"Failed to save configuration: {ex.Message}");
-            }
-        }
-
         private void UpdateStatus(string message)
         {
             toolStripStatusLabel.Text = message;
@@ -1233,6 +1209,54 @@ namespace StreamingDVR
             catch
             {
                 // Silently fail if logging fails - don't interrupt the app
+            }
+        }
+
+        // Streamlink Event Handlers
+
+        private void ChkUseStreamlink_CheckedChanged(object sender, EventArgs e)
+        {
+            // Enable/disable Streamlink quality controls based on checkbox
+            cboStreamlinkQuality.Enabled = chkUseStreamlink.Checked;
+            btnCheckStreamlink.Enabled = chkUseStreamlink.Checked;
+
+            // Save configuration when changed
+            SaveConfiguration();
+
+            // Reconfigure recording service
+            var config = _configService.LoadConfiguration();
+            _recordingService?.ConfigureStreamlink(
+                config.UseStreamlink,
+                config.StreamlinkQuality,
+                config.StreamlinkRetryOpen,
+                config.StreamlinkRetryStreams,
+                config.StreamlinkOptions
+            );
+
+            UpdateStatus(chkUseStreamlink.Checked
+                ? "Streamlink enabled for recordings"
+                : "Using FFmpeg for recordings");
+        }
+
+        private void BtnCheckStreamlink_Click(object sender, EventArgs e)
+        {
+            CheckStreamlinkAvailability();
+        }
+
+        private void CheckStreamlinkAvailability()
+        {
+            if (StreamlinkValidator.IsStreamlinkAvailable())
+            {
+                var info = StreamlinkValidator.GetStreamlinkInfo();
+                MessageBox.Show(
+                    info ?? "Streamlink is installed and available!",
+                    "Streamlink Status",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            else
+            {
+                StreamlinkValidator.ShowStreamlinkInstallationInstructions();
             }
         }
     }

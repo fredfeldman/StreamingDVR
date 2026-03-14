@@ -17,22 +17,25 @@ namespace StreamingDVR.Forms
         {
             lstEpgSources = new ListView();
             colName = new ColumnHeader();
+            colType = new ColumnHeader();
             colUrl = new ColumnHeader();
             colStatus = new ColumnHeader();
             colLastUpdated = new ColumnHeader();
+            colCacheInfo = new ColumnHeader();
             panel1 = new Panel();
             btnClose = new Button();
             btnToggleActive = new Button();
             btnDelete = new Button();
             btnEdit = new Button();
             btnAdd = new Button();
+            btnRefreshCache = new Button();
             label1 = new Label();
             panel1.SuspendLayout();
             SuspendLayout();
             // 
             // lstEpgSources
             // 
-            lstEpgSources.Columns.AddRange(new ColumnHeader[] { colName, colUrl, colStatus, colLastUpdated });
+            lstEpgSources.Columns.AddRange(new ColumnHeader[] { colName, colType, colUrl, colStatus, colLastUpdated, colCacheInfo });
             lstEpgSources.Dock = DockStyle.Fill;
             lstEpgSources.FullRowSelect = true;
             lstEpgSources.Location = new Point(0, 60);
@@ -45,13 +48,18 @@ namespace StreamingDVR.Forms
             // 
             // colName
             // 
-            colName.Text = "Name";
-            colName.Width = 200;
+            colName.Text  = "Name";
+            colName.Width = 180;
+            // 
+            // colType
+            // 
+            colType.Text  = "Type";
+            colType.Width = 60;
             // 
             // colUrl
             // 
-            colUrl.Text = "URL";
-            colUrl.Width = 450;
+            colUrl.Text  = "Location";
+            colUrl.Width = 410;
             // 
             // colStatus
             // 
@@ -60,8 +68,13 @@ namespace StreamingDVR.Forms
             // 
             // colLastUpdated
             // 
-            colLastUpdated.Text = "Last Updated";
-            colLastUpdated.Width = 200;
+            colLastUpdated.Text  = "Last Updated";
+            colLastUpdated.Width = 160;
+            // 
+            // colCacheInfo
+            // 
+            colCacheInfo.Text  = "Cache";
+            colCacheInfo.Width = 200;
             // 
             // panel1
             // 
@@ -70,6 +83,7 @@ namespace StreamingDVR.Forms
             panel1.Controls.Add(btnDelete);
             panel1.Controls.Add(btnEdit);
             panel1.Controls.Add(btnAdd);
+            panel1.Controls.Add(btnRefreshCache);
             panel1.Dock = DockStyle.Bottom;
             panel1.Location = new Point(0, 550);
             panel1.Name = "panel1";
@@ -96,6 +110,16 @@ namespace StreamingDVR.Forms
             btnToggleActive.Text = "Toggle Active";
             btnToggleActive.UseVisualStyleBackColor = true;
             btnToggleActive.Click += BtnToggleActive_Click;
+            // 
+            // btnRefreshCache
+            // 
+            btnRefreshCache.Location = new Point(492, 11);
+            btnRefreshCache.Name = "btnRefreshCache";
+            btnRefreshCache.Size = new Size(150, 38);
+            btnRefreshCache.TabIndex = 5;
+            btnRefreshCache.Text = "Clear Cache";
+            btnRefreshCache.UseVisualStyleBackColor = true;
+            btnRefreshCache.Click += BtnRefreshCache_Click;
             // 
             // btnDelete
             // 
@@ -157,15 +181,18 @@ namespace StreamingDVR.Forms
 
         private ListView lstEpgSources;
         private ColumnHeader colName;
+        private ColumnHeader colType;
         private ColumnHeader colUrl;
         private ColumnHeader colStatus;
         private ColumnHeader colLastUpdated;
+        private ColumnHeader colCacheInfo;
         private Panel panel1;
         private Button btnClose;
         private Button btnToggleActive;
         private Button btnDelete;
         private Button btnEdit;
         private Button btnAdd;
+        private Button btnRefreshCache;
         private Label label1;
     }
 }

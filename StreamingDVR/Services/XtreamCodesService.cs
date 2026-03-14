@@ -38,6 +38,21 @@ namespace StreamingDVR.Services
 
                 return IsAuthenticated;
             }
+            catch (HttpRequestException ex)
+            {
+                _authInfo = null;
+                throw new Exception($"Network error connecting to {serverUrl}: {ex.Message}", ex);
+            }
+            catch (TaskCanceledException ex) when (!ex.CancellationToken.IsCancellationRequested)
+            {
+                _authInfo = null;
+                throw new Exception($"Connection timed out after {_httpClient.Timeout.TotalSeconds}s connecting to {serverUrl}", ex);
+            }
+            catch (JsonException ex)
+            {
+                _authInfo = null;
+                throw new Exception($"Server at {serverUrl} returned an unexpected response: {ex.Message}", ex);
+            }
             catch
             {
                 _authInfo = null;
@@ -60,6 +75,10 @@ namespace StreamingDVR.Services
                 var channels = JsonSerializer.Deserialize<List<LiveChannel>>(content);
 
                 return channels ?? new List<LiveChannel>();
+            }
+            catch (JsonException)
+            {
+                throw;
             }
             catch
             {

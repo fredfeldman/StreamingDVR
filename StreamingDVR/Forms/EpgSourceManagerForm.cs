@@ -6,11 +6,13 @@ namespace StreamingDVR.Forms
     public partial class EpgSourceManagerForm : Form
     {
         private readonly ConfigurationService _configService;
+        private readonly EpgService           _epgService;
         private List<EpgSource> _epgSources = new();
 
-        public EpgSourceManagerForm(ConfigurationService configService)
+        public EpgSourceManagerForm(ConfigurationService configService, EpgService epgService)
         {
             _configService = configService;
+            _epgService    = epgService;
             InitializeComponent();
             LoadEpgSources();
         }
@@ -28,12 +30,27 @@ namespace StreamingDVR.Forms
             foreach (var source in _epgSources)
             {
                 var item = new ListViewItem(source.Name);
-                item.SubItems.Add(source.Url);
+                item.SubItems.Add(source.SourceType == EpgSourceType.File ? "File" : "URL");
+                item.SubItems.Add(source.Location);
                 item.SubItems.Add(source.IsActive ? "Active" : "Inactive");
                 item.SubItems.Add(source.LastUpdated?.ToString("g") ?? "Never");
+                item.SubItems.Add(GetCacheInfoText(source.Id));
                 item.Tag = source;
                 lstEpgSources.Items.Add(item);
             }
+        }
+
+        private string GetCacheInfoText(Guid sourceId)
+        {
+            var info = _epgService.GetCacheInfo(sourceId);
+            if (info == null) return "No cache";
+            var age = DateTime.Now - info.Value.CachedAt;
+            string ageStr = age.TotalHours < 1
+                ? $"{(int)age.TotalMinutes}m ago"
+                : age.TotalDays < 1
+                    ? $"{(int)age.TotalHours}h ago"
+                    : $"{(int)age.TotalDays}d ago";
+            return $"{info.Value.TotalProgrammes:N0} progs · {ageStr}";
         }
 
         private void BtnAdd_Click(object sender, EventArgs e)
@@ -79,9 +96,26 @@ namespace StreamingDVR.Forms
 
             if (result == DialogResult.Yes)
             {
+                _epgService.InvalidateCache(source.Id);
                 _epgSources.Remove(source);
                 SaveAndRefresh();
             }
+        }
+
+        private void BtnRefreshCache_Click(object sender, EventArgs e)
+        {
+            if (lstEpgSources.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select an EPG source to clear the cache for.",
+                    "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var source = (EpgSource)lstEpgSources.SelectedItems[0].Tag;
+            _epgService.InvalidateCache(source.Id);
+            RefreshList();
+            MessageBox.Show($"Cache cleared for '{source.Name}'.\nIt will be re-downloaded the next time the TV Guide is loaded.",
+                "Cache Cleared", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void BtnToggleActive_Click(object sender, EventArgs e)

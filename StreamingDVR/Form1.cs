@@ -17,8 +17,14 @@ namespace StreamingDVR
         private List<Category> _categories = new();
         private List<LiveChannel> _currentCategoryChannels = new();
         private System.Windows.Forms.Timer _refreshTimer;
+        private System.Windows.Forms.Timer _nowNextTimer;
         private Dictionary<string, RecordingPreviewForm> _previewForms = new();
         private List<IptvSource> _activeSources = new();
+
+        // ── async debug log ──────────────────────────────────────────────────
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _logQueue = new();
+        private readonly System.Threading.SemaphoreSlim _logSignal = new(0);
+        private Task? _logWriterTask;
 
         public Form1()
         {
@@ -28,39 +34,62 @@ namespace StreamingDVR
             _refreshTimer = new System.Windows.Forms.Timer();
             _refreshTimer.Interval = 2000;
             _refreshTimer.Tick += RefreshTimer_Tick;
+
+            _nowNextTimer = new System.Windows.Forms.Timer();
+            _nowNextTimer.Interval = 60_000;   // refresh Now/Next every minute
+            _nowNextTimer.Tick += async (_, __) => await RefreshNowNextAsync();
+
+            _logWriterTask = Task.Run(BackgroundLogWriterAsync);
         }
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            LogDebug("========================================");
             LogDebug("=== Application Starting ===");
-            LogDebug($"Version: {Application.ProductVersion}");
-            LogDebug($"OS: {Environment.OSVersion}");
-            LogDebug($".NET Version: {Environment.Version}");
-            LogDebug("========================================");
 
-            LogDebug("Checking FFmpeg availability...");
-            CheckFFmpegAvailability();
-
-            LogDebug("Loading configuration...");
             LoadConfiguration();
 
             if (string.IsNullOrEmpty(txtRecordingPath.Text))
             {
-                var recordingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "IPTV Recordings");
-                txtRecordingPath.Text = recordingsPath;
-                LogDebug($"Set default recording path: {recordingsPath}");
-            }
-            else
-            {
-                LogDebug($"Recording path from config: {txtRecordingPath.Text}");
+                txtRecordingPath.Text = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                    "IPTV Recordings");
             }
 
-            LogDebug("Initializing recording service...");
             InitializeRecordingService(txtRecordingPath.Text);
 
-            LogDebug("Auto-connecting to active sources...");
-            _ = ConnectToActiveSources();
+            // Run network-bound startup on a progress dialog so the form
+            // appears immediately and the user sees what's happening.
+            _ = RunStartupAsync();
+        }
+
+        private async Task RunStartupAsync()
+        {
+            using var dlg = new StartupProgressForm();
+            dlg.Show(this);
+
+            await ConnectToActiveSources(dlg);
+
+            dlg.MarkComplete();
+            await Task.Delay(400);   // brief pause so "Ready" is visible
+            dlg.Close();
+
+            // FFmpeg check is deferred until after the main window is usable
+            _ = Task.Run(() =>
+            {
+                bool ok = FFmpegValidator.IsFFmpegAvailable();
+                if (!ok)
+                    BeginInvoke(() =>
+                    {
+                        var r = MessageBox.Show(
+                            "FFmpeg is not detected on your system.\n\n" +
+                            "Recording will not work without FFmpeg.\n\n" +
+                            "Would you like to see installation instructions?",
+                            "FFmpeg Not Found",
+                            MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                        if (r == DialogResult.Yes)
+                            FFmpegValidator.ShowFFmpegInstallationInstructions();
+                    });
+            });
         }
 
         private void CheckFFmpegAvailability()
@@ -286,15 +315,22 @@ namespace StreamingDVR
 
         private void DisplayChannels(List<LiveChannel> channels)
         {
+            lstChannels.BeginUpdate();
             lstChannels.Items.Clear();
 
             foreach (var channel in channels.OrderBy(c => c.Name))
             {
                 var item = new ListViewItem(channel.Name);
                 item.SubItems.Add(channel.StreamId.ToString());
+                item.SubItems.Add("");   // Now
+                item.SubItems.Add("");   // Next
                 item.Tag = channel;
                 lstChannels.Items.Add(item);
             }
+
+            lstChannels.EndUpdate();
+
+            _ = RefreshNowNextAsync();
         }
 
         private void TxtSearch_TextChanged(object sender, EventArgs e)
@@ -751,6 +787,7 @@ namespace StreamingDVR
             }
 
             _refreshTimer?.Stop();
+            _nowNextTimer?.Stop();
             _recordingService?.Dispose();
 
             foreach (var form in _previewForms.Values)
@@ -872,9 +909,9 @@ namespace StreamingDVR
             }
         }
 
-        private void BtnManageEpgSources_Click(object? sender, EventArgs e)
+        private void BtnManageEpgSources_Click(object sender, EventArgs e)
         {
-            using var epgManager = new EpgSourceManagerForm(_configService);
+            using var epgManager = new EpgSourceManagerForm(_configService, _epgService);
             if (epgManager.ShowDialog() == DialogResult.OK)
             {
                 UpdateStatus("EPG sources updated");
@@ -892,265 +929,179 @@ namespace StreamingDVR
             var channel = lstChannels.SelectedItems[0].Tag as LiveChannel;
             if (channel == null) return;
 
-            using var assignEpgForm = new AssignEpgForm(_configService, channel.StreamId, channel.Name);
+            using var assignEpgForm = new AssignEpgForm(_configService, _epgService, channel.StreamId, channel.Name);
             if (assignEpgForm.ShowDialog() == DialogResult.OK)
             {
                 UpdateStatus($"EPG assignment updated for {channel.Name}");
             }
         }
 
-        private async Task ConnectToActiveSources()
+        private async Task ConnectToActiveSources(StartupProgressForm? progress = null)
         {
             LogDebug("=== ConnectToActiveSources: Starting ===");
 
             var config = _configService.LoadConfiguration();
             _activeSources = config.IptvSources.Where(s => s.IsActive).ToList();
 
-            LogDebug($"Total sources in config: {config.IptvSources.Count}");
-            LogDebug($"Active sources: {_activeSources.Count}");
-
             if (_activeSources.Count == 0)
             {
-                LogDebug("No active sources configured");
                 UpdateStatus("No active sources configured. Use Manage Sources to add sources.");
+                progress?.ReportStep("No active sources configured.");
                 return;
             }
 
-            UpdateStatus($"Connecting to {_activeSources.Count} source(s)...");
+            progress?.SetSourceCount(_activeSources.Count);
+            progress?.ReportStep($"Connecting to {_activeSources.Count} source(s) in parallel…");
+            UpdateStatus($"Connecting to {_activeSources.Count} source(s)…");
+
             _allChannels.Clear();
             _categories.Clear();
 
+            // Collect results in a thread-safe way since connections run in parallel
+            var channelBag  = new System.Collections.Concurrent.ConcurrentBag<LiveChannel>();
+            var categoryBag = new System.Collections.Concurrent.ConcurrentBag<Category>();
             int successCount = 0;
-            int attemptNumber = 0;
 
-            foreach (var source in _activeSources)
+            var tasks = _activeSources.Select(async source =>
             {
-                attemptNumber++;
-                LogDebug($"--- Source {attemptNumber}/{_activeSources.Count} ---");
-                LogDebug($"Name: {source.Name}");
-                LogDebug($"Type: {source.Type}");
-                LogDebug($"ID: {source.Id}");
-
+                progress?.ReportStep($"Connecting to {source.Name}…");
                 try
                 {
+                    bool ok = false;
                     switch (source.Type)
                     {
                         case SourceType.XtreamCodes:
-                            LogDebug($"Attempting Xtream Codes connection to {source.Name}");
-                            LogDebug($"Server URL: {source.ServerUrl}");
-                            LogDebug($"Username: {source.Username}");
-                            LogDebug($"Port: {source.Port}");
-
-                            if (await ConnectToXtreamSource(source))
-                            {
-                                successCount++;
-                                LogDebug($"✓ Successfully connected to {source.Name}");
-                            }
-                            else
-                            {
-                                LogDebug($"✗ Failed to connect to {source.Name} (returned false)");
-                            }
+                            ok = await ConnectToXtreamSource(source, channelBag, categoryBag);
                             break;
-
                         case SourceType.Enigma2:
-                            LogDebug($"Attempting Enigma2 connection to {source.Name}");
-                            LogDebug($"Server URL: {source.ServerUrl}");
-                            LogDebug($"Username: {source.Username}");
-                            LogDebug($"Port: {source.Port}");
-
-                            if (await ConnectToEnigma2Source(source))
-                            {
-                                successCount++;
-                                LogDebug($"✓ Successfully connected to {source.Name}");
-                            }
-                            else
-                            {
-                                LogDebug($"✗ Failed to connect to {source.Name} (returned false)");
-                            }
+                            ok = await ConnectToEnigma2Source(source, channelBag, categoryBag);
                             break;
-
                         case SourceType.M3U:
-                            LogDebug($"M3U support coming soon: {source.Name}");
                             UpdateStatus($"M3U support coming soon: {source.Name}");
                             break;
                     }
+
+                    int count = channelBag.Count;
+                    if (ok) System.Threading.Interlocked.Increment(ref successCount);
+                    progress?.ReportSourceResult(source.Name, ok, ok ? count : 0);
                 }
                 catch (Exception ex)
                 {
                     source.LastError = ex.Message;
-                    LogDebug($"✗ Exception connecting to {source.Name}:");
-                    LogDebug($"  Exception Type: {ex.GetType().Name}");
-                    LogDebug($"  Message: {ex.Message}");
-                    LogDebug($"  Stack Trace: {ex.StackTrace}");
-                    UpdateStatus($"Failed to connect to {source.Name}: {ex.Message}");
+                    LogDebug($"✗ Exception connecting to {source.Name}: {ex.Message}");
+                    progress?.ReportSourceResult(source.Name, false);
                 }
-            }
+                finally
+                {
+                    progress?.IncrementProgress();
+                }
+            });
 
-            LogDebug($"=== Connection Summary ===");
-            LogDebug($"Successful: {successCount}/{_activeSources.Count}");
-            LogDebug($"Total channels loaded: {_allChannels.Count}");
-            LogDebug($"Total categories loaded: {_categories.Count}");
+            await Task.WhenAll(tasks);
+
+            // Merge thread-safe bags back into the shared lists
+            _allChannels.AddRange(channelBag);
+            _categories.AddRange(categoryBag);
 
             if (successCount > 0)
             {
-                UpdateStatus($"Connected to {successCount} of {_activeSources.Count} source(s)");
                 LoadChannelsAndCategoriesFromCache();
                 _refreshTimer.Start();
+                _nowNextTimer.Start();
+                _ = RefreshNowNextAsync();
                 LogDebug("Timer started for periodic refresh");
             }
             else
             {
-                LogDebug("No sources connected successfully");
-                UpdateStatus("Failed to connect to any sources");
+                UpdateStatus("Could not connect to any sources. Check Settings.");
             }
 
-            LogDebug("=== ConnectToActiveSources: Complete ===");
+            LogDebug($"=== ConnectToActiveSources: Complete — {successCount}/{_activeSources.Count} succeeded ===");
         }
 
-        private async Task<bool> ConnectToEnigma2Source(IptvSource source)
+        private async Task<bool> ConnectToEnigma2Source(
+            IptvSource source,
+            System.Collections.Concurrent.ConcurrentBag<LiveChannel> channelBag,
+            System.Collections.Concurrent.ConcurrentBag<Category> categoryBag)
         {
             LogDebug($"  >> ConnectToEnigma2Source: {source.Name}");
 
-            // Validate server URL (credentials are optional for Enigma2)
             if (string.IsNullOrEmpty(source.ServerUrl))
-            {
-                LogDebug("  ✗ Missing server URL");
                 throw new Exception("Server URL is required");
-            }
 
-            // Log credential status
-            if (string.IsNullOrEmpty(source.Username))
-            {
-                LogDebug("  Anonymous access (no username/password)");
-            }
-            else
-            {
-                LogDebug("  Using authentication");
-            }
-
-            LogDebug("  Credentials validation passed");
-
-            // Initialize service if needed
             if (_enigma2Service == null)
-            {
-                LogDebug("  Creating new Enigma2Service instance");
                 _enigma2Service = new Enigma2Service();
-            }
-            else
+
+            bool success = await _enigma2Service.AuthenticateAsync(
+                source.ServerUrl, source.Username, source.Password, source.Port);
+
+            if (!success)
             {
-                LogDebug("  Reusing existing Enigma2Service instance");
+                LogDebug($"  << ConnectToEnigma2Source: Failed");
+                return false;
             }
 
-            // Attempt authentication
-            LogDebug("  Calling AuthenticateAsync...");
-            var success = await _enigma2Service.AuthenticateAsync(
-                source.ServerUrl,
-                source.Username,
-                source.Password,
-                source.Port);
+            source.LastConnected = DateTime.Now;
+            source.LastError     = null;
 
-            LogDebug($"  Authentication result: {success}");
+            var bouquets = await _enigma2Service.GetBouquetsAsync();
+            var channels = await _enigma2Service.GetAllChannelsAsync();
 
-            if (success)
+            foreach (var ch in channels)
             {
-                source.LastConnected = DateTime.Now;
-                source.LastError = null;
-
-                LogDebug("  Loading bouquets (categories)...");
-                var bouquets = await _enigma2Service.GetBouquetsAsync();
-                LogDebug($"  Loaded {bouquets.Count} bouquets");
-
-                LogDebug("  Loading channels from all bouquets...");
-                var channels = await _enigma2Service.GetAllChannelsAsync();
-                LogDebug($"  Loaded {channels.Count} channels");
-
-                // Add source identifier to channels
-                LogDebug("  Tagging channels with source ID");
-                foreach (var channel in channels)
-                {
-                    channel.CategoryId = $"{source.Id}_{channel.CategoryId}";
-                }
-
-                _allChannels.AddRange(channels);
-                _categories.AddRange(bouquets);
-
-                LogDebug($"  << ConnectToEnigma2Source: Success (Total channels: {_allChannels.Count})");
-                return true;
+                ch.CategoryId = $"{source.Id}_{ch.CategoryId}";
+                channelBag.Add(ch);
             }
+            foreach (var b in bouquets)
+                categoryBag.Add(b);
 
-            LogDebug("  << ConnectToEnigma2Source: Failed (authentication returned false)");
-            return false;
+            LogDebug($"  << ConnectToEnigma2Source: {channels.Count} channels, {bouquets.Count} bouquets");
+            return true;
         }
 
-        private async Task<bool> ConnectToXtreamSource(IptvSource source)
+        private async Task<bool> ConnectToXtreamSource(
+            IptvSource source,
+            System.Collections.Concurrent.ConcurrentBag<LiveChannel> channelBag,
+            System.Collections.Concurrent.ConcurrentBag<Category> categoryBag)
         {
             LogDebug($"  >> ConnectToXtreamSource: {source.Name}");
 
-            // Validate credentials
-            if (string.IsNullOrEmpty(source.ServerUrl) || 
-                string.IsNullOrEmpty(source.Username) || 
+            if (string.IsNullOrEmpty(source.ServerUrl) ||
+                string.IsNullOrEmpty(source.Username)  ||
                 string.IsNullOrEmpty(source.Password))
             {
-                LogDebug("  ✗ Missing connection details");
-                LogDebug($"    ServerUrl empty: {string.IsNullOrEmpty(source.ServerUrl)}");
-                LogDebug($"    Username empty: {string.IsNullOrEmpty(source.Username)}");
-                LogDebug($"    Password empty: {string.IsNullOrEmpty(source.Password)}");
                 throw new Exception("Missing connection details");
             }
 
-            LogDebug("  Credentials validation passed");
-
-            // Initialize service if needed
             if (_xtreamService == null)
-            {
-                LogDebug("  Creating new XtreamCodesService instance");
                 _xtreamService = new XtreamCodesService();
-            }
-            else
+
+            bool success = await _xtreamService.AuthenticateAsync(
+                source.ServerUrl, source.Username, source.Password);
+
+            if (!success)
             {
-                LogDebug("  Reusing existing XtreamCodesService instance");
+                LogDebug($"  << ConnectToXtreamSource: Failed");
+                return false;
             }
 
-            // Attempt authentication
-            LogDebug("  Calling AuthenticateAsync...");
-            var success = await _xtreamService.AuthenticateAsync(
-                source.ServerUrl,
-                source.Username,
-                source.Password);
+            _epgService.SetCredentials(source.ServerUrl, source.Username, source.Password);
+            source.LastConnected = DateTime.Now;
+            source.LastError     = null;
 
-            LogDebug($"  Authentication result: {success}");
+            var channels   = await _xtreamService.GetLiveChannelsAsync();
+            var categories = await _xtreamService.GetLiveCategoriesAsync();
 
-            if (success)
+            foreach (var ch in channels)
             {
-                LogDebug("  Setting EPG credentials");
-                _epgService.SetCredentials(source.ServerUrl, source.Username, source.Password);
-                source.LastConnected = DateTime.Now;
-                source.LastError = null;
-
-                LogDebug("  Loading channels...");
-                var channels = await _xtreamService.GetLiveChannelsAsync();
-                LogDebug($"  Loaded {channels.Count} channels");
-
-                LogDebug("  Loading categories...");
-                var categories = await _xtreamService.GetLiveCategoriesAsync();
-                LogDebug($"  Loaded {categories.Count} categories");
-
-                // Add source identifier to channels
-                LogDebug("  Tagging channels with source ID");
-                foreach (var channel in channels)
-                {
-                    channel.CategoryId = $"{source.Id}_{channel.CategoryId}";
-                }
-
-                _allChannels.AddRange(channels);
-                _categories.AddRange(categories);
-
-                LogDebug($"  << ConnectToXtreamSource: Success (Total channels: {_allChannels.Count})");
-                return true;
+                ch.CategoryId = $"{source.Id}_{ch.CategoryId}";
+                channelBag.Add(ch);
             }
+            foreach (var cat in categories)
+                categoryBag.Add(cat);
 
-            LogDebug("  << ConnectToXtreamSource: Failed (authentication returned false)");
-            return false;
+            LogDebug($"  << ConnectToXtreamSource: {channels.Count} channels, {categories.Count} categories");
+            return true;
         }
 
         private void LoadChannelsAndCategoriesFromCache()
@@ -1183,32 +1134,38 @@ namespace StreamingDVR
             }
 
             UpdateStatus($"Loaded {_allChannels.Count} channels from {_activeSources.Count} source(s)");
+            PopulateEpgCategoryCombo();
             LogDebug($"UI updated with {lstCategories.Items.Count} categories");
             LogDebug("=== LoadChannelsAndCategoriesFromCache: Complete ===");
         }
 
         private void LogDebug(string message)
         {
-            // Write to debug output
             System.Diagnostics.Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {message}");
+            _logQueue.Enqueue($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}");
+            _logSignal.Release();
+        }
 
-            // Also write to a log file for persistent debugging
+        private async Task BackgroundLogWriterAsync()
+        {
+            var logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "IPTV_DVR", "debug.log");
             try
             {
-                var logPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "IPTV_DVR",
-                    "debug.log");
-
-                var logDir = Path.GetDirectoryName(logPath);
-                if (!Directory.Exists(logDir))
-                    Directory.CreateDirectory(logDir!);
-
-                File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}");
+                var dir = Path.GetDirectoryName(logPath)!;
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
             }
-            catch
+            catch { return; }
+
+            while (true)
             {
-                // Silently fail if logging fails - don't interrupt the app
+                await _logSignal.WaitAsync();
+                var lines = new System.Text.StringBuilder();
+                while (_logQueue.TryDequeue(out var line))
+                    lines.AppendLine(line);
+                try { await File.AppendAllTextAsync(logPath, lines.ToString()); }
+                catch { /* silently ignore log errors */ }
             }
         }
 
@@ -1258,6 +1215,211 @@ namespace StreamingDVR
             {
                 StreamlinkValidator.ShowStreamlinkInstallationInstructions();
             }
+        }
+
+        // ── TV Guide Tab ─────────────────────────────────────────────────────
+
+        private void PopulateEpgCategoryCombo()
+        {
+            cboEpgCategory.Items.Clear();
+            cboEpgCategory.Items.Add("All Categories");
+
+            foreach (var cat in _categories.OrderBy(c => c.CategoryName))
+                cboEpgCategory.Items.Add(cat);
+
+            if (cboEpgCategory.Items.Count > 0)
+                cboEpgCategory.SelectedIndex = 0;
+        }
+
+        // ── Now/Next EPG on Channels tab ─────────────────────────────────────
+
+        private async Task RefreshNowNextAsync()
+        {
+            if (lstChannels.Items.Count == 0) return;
+
+            var config = _configService.LoadConfiguration();
+            var now    = DateTime.Now;
+
+            // Pre-load any XMLTV sources not yet cached
+            var neededSourceIds = lstChannels.Items.Cast<ListViewItem>()
+                .Select(i => i.Tag as LiveChannel)
+                .Where(ch => ch != null)
+                .Select(ch => config.ChannelEpgMappings.FirstOrDefault(m => m.StreamId == ch!.StreamId))
+                .Where(m => m?.EpgSourceId != null)
+                .Select(m => m!.EpgSourceId!.Value)
+                .Distinct()
+                .Where(id => !_epgService.IsSourceCached(id))
+                .ToList();
+
+            foreach (var sourceId in neededSourceIds)
+            {
+                var src = config.EpgSources.FirstOrDefault(s => s.Id == sourceId);
+                if (src != null)
+                    await _epgService.LoadXmltvSourceAsync(src);
+            }
+
+            lstChannels.BeginUpdate();
+            foreach (ListViewItem item in lstChannels.Items)
+            {
+                if (item.Tag is not LiveChannel ch) continue;
+                if (item.SubItems.Count < 4) continue;
+
+                List<EpgListing> listings;
+                var mapping = config.ChannelEpgMappings.FirstOrDefault(m => m.StreamId == ch.StreamId);
+
+                if (mapping?.EpgSourceId != null && !string.IsNullOrEmpty(mapping.EpgChannelId) &&
+                    _epgService.IsSourceCached(mapping.EpgSourceId.Value))
+                {
+                    listings = _epgService.GetProgrammesFromCache(
+                        mapping.EpgSourceId.Value, mapping.EpgChannelId,
+                        from: now.AddMinutes(-1), to: now.AddHours(4));
+                }
+                else
+                {
+                    // Skip Xtream Codes per-channel API call here — too many calls;
+                    // users should use AssignEpg with XMLTV for Now/Next data.
+                    listings = new List<EpgListing>();
+                }
+
+                var current = listings.FirstOrDefault(p => p.StartTime <= now && p.EndTime > now);
+                var next    = listings.FirstOrDefault(p => p.StartTime > now);
+
+                item.SubItems[2].Text = current != null
+                    ? $"{current.Title}  ({current.StartTime:HH:mm}–{current.EndTime:HH:mm})"
+                    : "";
+                item.SubItems[3].Text = next != null
+                    ? $"{next.Title}  ({next.StartTime:HH:mm})"
+                    : "";
+            }
+            lstChannels.EndUpdate();
+        }
+
+        private async void BtnEpgLoad_Click(object sender, EventArgs e)
+        {
+            if (_allChannels.Count == 0)
+            {
+                lblEpgStatus.Text = "No channels loaded — connect a source first.";
+                return;
+            }
+
+            btnEpgLoad.Enabled = false;
+            lblEpgStatus.Text  = "Loading EPG data…";
+
+            try
+            {
+                var config = _configService.LoadConfiguration();
+
+                // Determine which channels to show
+                IEnumerable<LiveChannel> channels = _allChannels;
+                if (cboEpgCategory.SelectedItem is Category selectedCat)
+                {
+                    channels = _allChannels.Where(ch =>
+                        ch.CategoryId?.EndsWith(selectedCat.CategoryId) == true ||
+                        ch.CategoryId == selectedCat.CategoryId);
+                }
+
+                var channelList = channels.Take(200).ToList();
+
+                // Pre-load any XMLTV sources that are referenced by mappings for channels
+                // in this batch — load each source only once.
+                var neededSourceIds = channelList
+                    .Select(ch => config.ChannelEpgMappings.FirstOrDefault(m => m.StreamId == ch.StreamId))
+                    .Where(m => m?.EpgSourceId != null)
+                    .Select(m => m!.EpgSourceId!.Value)
+                    .Distinct()
+                    .ToList();
+
+                foreach (var sourceId in neededSourceIds)
+                {
+                    if (_epgService.IsSourceCached(sourceId)) continue;
+
+                    var src = config.EpgSources.FirstOrDefault(s => s.Id == sourceId);
+                    if (src == null) continue;
+
+                    lblEpgStatus.Text = $"Loading EPG source: {src.Name}…";
+                    var (err, fromCache) = await _epgService.LoadXmltvSourceAsync(src);
+                    if (err != null)
+                        LogDebug($"[EPG] Failed to load source '{src.Name}': {err}");
+                    else
+                        lblEpgStatus.Text = fromCache
+                            ? $"EPG: {src.Name} loaded from cache"
+                            : $"EPG: {src.Name} downloaded and cached";
+                }
+
+                // Build the grid rows
+                var rows   = new List<EpgRow>();
+                var window = TimeSpan.FromHours(12);
+                var from   = DateTime.Now.AddHours(-1);
+                var to     = DateTime.Now.Add(window);
+                int loaded = 0;
+
+                foreach (var ch in channelList)
+                {
+                    List<EpgListing> listings;
+
+                    // Try configured XMLTV mapping first
+                    var mapping = config.ChannelEpgMappings.FirstOrDefault(m => m.StreamId == ch.StreamId);
+                    if (mapping?.EpgSourceId != null && !string.IsNullOrEmpty(mapping.EpgChannelId) &&
+                        _epgService.IsSourceCached(mapping.EpgSourceId.Value))
+                    {
+                        listings = _epgService.GetProgrammesFromCache(
+                            mapping.EpgSourceId.Value, mapping.EpgChannelId, from, to);
+                    }
+                    else
+                    {
+                        // Fall back to Xtream Codes server EPG
+                        var epgId = ch.EpgChannelId ?? ch.StreamId.ToString();
+                        listings  = await _epgService.GetEpgForChannelAsync(epgId, limit: 10);
+                    }
+
+                    var programs = listings
+                        .Where(l => l.EndTime > from)
+                        .Select(l => new EpgProgram
+                        {
+                            Title       = l.Title,
+                            Description = l.Description,
+                            Start       = l.StartTime,
+                            End         = l.EndTime
+                        })
+                        .OrderBy(p => p.Start)
+                        .ToList();
+
+                    rows.Add(new EpgRow
+                    {
+                        ChannelName = ch.Name,
+                        StreamId    = ch.StreamId,
+                        Programs    = programs
+                    });
+
+                    loaded++;
+                    if (loaded % 10 == 0)
+                        lblEpgStatus.Text = $"Loading… {loaded}/{channelList.Count} channels";
+                }
+
+                epgGrid.ViewStart = DateTime.Now.Date.AddHours(DateTime.Now.Hour);
+                epgGrid.LoadData(rows);
+
+                int totalProg = rows.Sum(r => r.Programs.Count);
+                int withData  = rows.Count(r => r.Programs.Count > 0);
+                lblEpgStatus.Text = $"{rows.Count} channels, {totalProg} programmes ({withData} channels have EPG data)";
+
+                if (totalProg == 0)
+                    lblEpgStatus.Text += " — check EPG source assignments in Settings";
+            }
+            catch (Exception ex)
+            {
+                lblEpgStatus.Text = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                btnEpgLoad.Enabled = true;
+            }
+        }
+
+
+        private void BtnEpgNow_Click(object sender, EventArgs e)
+        {
+            epgGrid.ViewStart = DateTime.Now.Date.AddHours(DateTime.Now.Hour);
         }
     }
 }

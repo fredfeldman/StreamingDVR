@@ -48,6 +48,8 @@
             lstChannels = new ListView();
             colChannelName = new ColumnHeader();
             colStreamId = new ColumnHeader();
+            colNow = new ColumnHeader();
+            colNext = new ColumnHeader();
             contextMenuChannels = new ContextMenuStrip(components);
             menuRecordNow = new ToolStripMenuItem();
             menuScheduleRecording = new ToolStripMenuItem();
@@ -83,6 +85,16 @@
             btnRemoveSchedule = new Button();
             btnAddSchedule = new Button();
             tabSettings = new TabPage();
+            tabEpg = new TabPage();
+            pnlEpgTop = new Panel();
+            cboEpgCategory = new ComboBox();
+            btnEpgLoad = new Button();
+            btnEpgNow = new Button();
+            lblEpgStatus = new Label();
+            epgGrid = new Forms.EpgGridControl();
+            groupBoxEpg = new GroupBox();
+            lblEpgInfo = new Label();
+            btnManageEpgSources = new Button();
             groupBox2 = new GroupBox();
             label4 = new Label();
             txtRecordingPath = new TextBox();
@@ -129,8 +141,11 @@
             tabScheduled.SuspendLayout();
             panel3.SuspendLayout();
             tabSettings.SuspendLayout();
+            tabEpg.SuspendLayout();
+            pnlEpgTop.SuspendLayout();
             groupBox2.SuspendLayout();
             groupBoxSources.SuspendLayout();
+            groupBoxEpg.SuspendLayout();
             statusStrip.SuspendLayout();
             groupBoxStreamlink.SuspendLayout();
             SuspendLayout();
@@ -204,6 +219,7 @@
             tabControl.Controls.Add(tabChannels);
             tabControl.Controls.Add(tabRecordings);
             tabControl.Controls.Add(tabScheduled);
+            tabControl.Controls.Add(tabEpg);
             tabControl.Controls.Add(tabSettings);
             tabControl.Dock = DockStyle.Fill;
             tabControl.Location = new Point(0, 24);
@@ -260,7 +276,7 @@
             // 
             // lstChannels
             // 
-            lstChannels.Columns.AddRange(new ColumnHeader[] { colChannelName, colStreamId });
+            lstChannels.Columns.AddRange(new ColumnHeader[] { colChannelName, colStreamId, colNow, colNext });
             lstChannels.ContextMenuStrip = contextMenuChannels;
             lstChannels.Dock = DockStyle.Fill;
             lstChannels.FullRowSelect = true;
@@ -275,18 +291,28 @@
             // 
             // colChannelName
             // 
-            colChannelName.Text = "Channel Name";
-            colChannelName.Width = 600;
+            colChannelName.Text  = "Channel Name";
+            colChannelName.Width = 280;
             // 
             // colStreamId
             // 
-            colStreamId.Text = "Stream ID";
-            colStreamId.Width = 150;
+            colStreamId.Text  = "Stream ID";
+            colStreamId.Width = 90;
+            // 
+            // colNow
+            // 
+            colNow.Text  = "Now";
+            colNow.Width = 340;
+            // 
+            // colNext
+            // 
+            colNext.Text  = "Next";
+            colNext.Width = 340;
             // 
             // contextMenuChannels
             // 
             contextMenuChannels.ImageScalingSize = new Size(24, 24);
-            contextMenuChannels.Items.AddRange(new ToolStripItem[] { menuRecordNow, menuScheduleRecording, menuViewEpg, menuSeparator1, menuCopyStreamUrl });
+            contextMenuChannels.Items.AddRange(new ToolStripItem[] { menuRecordNow, menuScheduleRecording, menuViewEpg, menuAssignEpg, menuSeparator1, menuCopyStreamUrl });
             contextMenuChannels.Name = "contextMenuChannels";
             contextMenuChannels.Size = new Size(241, 138);
             // 
@@ -590,9 +616,75 @@
             btnAddSchedule.Text = "Add";
             btnAddSchedule.UseVisualStyleBackColor = true;
             // 
+            // tabEpg
+            // 
+            tabEpg.Controls.Add(pnlEpgTop);
+            tabEpg.Controls.Add(epgGrid);
+            tabEpg.Location = new Point(4, 34);
+            tabEpg.Margin = new Padding(4);
+            tabEpg.Name = "tabEpg";
+            tabEpg.Size = new Size(1492, 751);
+            tabEpg.TabIndex = 4;
+            tabEpg.Text = "TV Guide";
+            tabEpg.UseVisualStyleBackColor = true;
+            // 
+            // pnlEpgTop
+            // 
+            pnlEpgTop.Controls.Add(lblEpgStatus);
+            pnlEpgTop.Controls.Add(btnEpgNow);
+            pnlEpgTop.Controls.Add(btnEpgLoad);
+            pnlEpgTop.Controls.Add(cboEpgCategory);
+            pnlEpgTop.Dock = DockStyle.Top;
+            pnlEpgTop.Name = "pnlEpgTop";
+            pnlEpgTop.Size = new Size(1492, 50);
+            pnlEpgTop.Padding = new Padding(4);
+            // 
+            // cboEpgCategory
+            // 
+            cboEpgCategory.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboEpgCategory.Location = new Point(8, 10);
+            cboEpgCategory.Name = "cboEpgCategory";
+            cboEpgCategory.Size = new Size(220, 30);
+            cboEpgCategory.TabIndex = 0;
+            // 
+            // btnEpgLoad
+            // 
+            btnEpgLoad.Location = new Point(240, 8);
+            btnEpgLoad.Name = "btnEpgLoad";
+            btnEpgLoad.Size = new Size(130, 34);
+            btnEpgLoad.TabIndex = 1;
+            btnEpgLoad.Text = "Load Guide";
+            btnEpgLoad.UseVisualStyleBackColor = true;
+            btnEpgLoad.Click += BtnEpgLoad_Click;
+            // 
+            // btnEpgNow
+            // 
+            btnEpgNow.Location = new Point(380, 8);
+            btnEpgNow.Name = "btnEpgNow";
+            btnEpgNow.Size = new Size(90, 34);
+            btnEpgNow.TabIndex = 2;
+            btnEpgNow.Text = "Jump to Now";
+            btnEpgNow.UseVisualStyleBackColor = true;
+            btnEpgNow.Click += BtnEpgNow_Click;
+            // 
+            // lblEpgStatus
+            // 
+            lblEpgStatus.AutoSize = true;
+            lblEpgStatus.Location = new Point(480, 16);
+            lblEpgStatus.Name = "lblEpgStatus";
+            lblEpgStatus.Size = new Size(200, 23);
+            lblEpgStatus.Text = "Select a category and click Load Guide";
+            // 
+            // epgGrid
+            // 
+            epgGrid.Dock = DockStyle.Fill;
+            epgGrid.Name = "epgGrid";
+            epgGrid.Size = new Size(1492, 701);
+            // 
             // tabSettings
             // 
             tabSettings.Controls.Add(groupBoxStreamlink);
+            tabSettings.Controls.Add(groupBoxEpg);
             tabSettings.Controls.Add(groupBox2);
             tabSettings.Controls.Add(groupBoxSources);
             tabSettings.Location = new Point(4, 34);
@@ -608,7 +700,7 @@
             groupBox2.Controls.Add(label4);
             groupBox2.Controls.Add(txtRecordingPath);
             groupBox2.Controls.Add(btnBrowseRecordingPath);
-            groupBox2.Location = new Point(25, 500);
+            groupBox2.Location = new Point(25, 355);
             groupBox2.Margin = new Padding(4);
             groupBox2.Name = "groupBox2";
             groupBox2.Padding = new Padding(4);
@@ -679,10 +771,45 @@
             btnManageSources.UseVisualStyleBackColor = true;
             btnManageSources.Click += BtnManageSources_Click;
             // 
+            // groupBoxEpg
+            // 
+            groupBoxEpg.Controls.Add(lblEpgInfo);
+            groupBoxEpg.Controls.Add(btnManageEpgSources);
+            groupBoxEpg.Location = new Point(25, 190);
+            groupBoxEpg.Margin = new Padding(4);
+            groupBoxEpg.Name = "groupBoxEpg";
+            groupBoxEpg.Padding = new Padding(4);
+            groupBoxEpg.Size = new Size(750, 150);
+            groupBoxEpg.TabIndex = 1;
+            groupBoxEpg.TabStop = false;
+            groupBoxEpg.Text = "EPG Sources";
+            // 
+            // lblEpgInfo
+            // 
+            lblEpgInfo.Location = new Point(25, 38);
+            lblEpgInfo.Margin = new Padding(4, 0, 4, 0);
+            lblEpgInfo.Name = "lblEpgInfo";
+            lblEpgInfo.Size = new Size(700, 44);
+            lblEpgInfo.TabIndex = 0;
+            lblEpgInfo.Text = "Configure Electronic Programme Guide (EPG) sources to display programme information.\r\nSupports XMLTV format URLs and files.";
+            // 
+            // btnManageEpgSources
+            // 
+            btnManageEpgSources.Location = new Point(25, 94);
+            btnManageEpgSources.Margin = new Padding(4);
+            btnManageEpgSources.Name = "btnManageEpgSources";
+            btnManageEpgSources.Size = new Size(188, 38);
+            btnManageEpgSources.TabIndex = 1;
+            btnManageEpgSources.Text = "Manage EPG Sources...";
+            btnManageEpgSources.UseVisualStyleBackColor = true;
+            btnManageEpgSources.Click += BtnManageEpgSources_Click;
+            // 
             // menuAssignEpg
             // 
             menuAssignEpg.Name = "menuAssignEpg";
-            menuAssignEpg.Size = new Size(32, 19);
+            menuAssignEpg.Size = new Size(240, 32);
+            menuAssignEpg.Text = "Configure EPG…";
+            menuAssignEpg.Click += MenuAssignEpg_Click;
             // 
             // btnViewEpg
             // 
@@ -819,7 +946,7 @@
             groupBoxStreamlink.Controls.Add(lblStreamlinkQuality);
             groupBoxStreamlink.Controls.Add(chkUseStreamlink);
             groupBoxStreamlink.Controls.Add(lblStreamlinkInfo);
-            groupBoxStreamlink.Location = new Point(25, 350);
+            groupBoxStreamlink.Location = new Point(25, 495);
             groupBoxStreamlink.Name = "groupBoxStreamlink";
             groupBoxStreamlink.Size = new Size(750, 125);
             groupBoxStreamlink.TabIndex = 4;
@@ -922,9 +1049,12 @@
             tabScheduled.ResumeLayout(false);
             panel3.ResumeLayout(false);
             tabSettings.ResumeLayout(false);
+            tabEpg.ResumeLayout(false);
+            pnlEpgTop.ResumeLayout(false);
             groupBox2.ResumeLayout(false);
             groupBox2.PerformLayout();
             groupBoxSources.ResumeLayout(false);
+            groupBoxEpg.ResumeLayout(false);
             statusStrip.ResumeLayout(false);
             statusStrip.PerformLayout();
             groupBoxStreamlink.ResumeLayout(false);
@@ -952,12 +1082,21 @@
         private TabPage tabRecordings;
         private TabPage tabScheduled;
         private TabPage tabSettings;
+        private TabPage tabEpg;
+        private Panel pnlEpgTop;
+        private ComboBox cboEpgCategory;
+        private Button btnEpgLoad;
+        private Button btnEpgNow;
+        private Label lblEpgStatus;
+        private Forms.EpgGridControl epgGrid;
         private SplitContainer splitContainer1;
         private ListBox lstCategories;
         private TextBox txtSearch;
         private ListView lstChannels;
         private ColumnHeader colChannelName;
         private ColumnHeader colStreamId;
+        private ColumnHeader colNow;
+        private ColumnHeader colNext;
         private ContextMenuStrip contextMenuChannels;
         private ToolStripMenuItem menuRecordNow;
         private ToolStripMenuItem menuScheduleRecording;
